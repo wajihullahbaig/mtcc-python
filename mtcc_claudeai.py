@@ -99,9 +99,9 @@ class VisualizationManager:
         plt.show()
     
     def show_image_masks(self, image: np.ndarray, mask: np.ndarray, 
-                        orientation: np.ndarray = None, frequency: np.ndarray = None,
-                        energy: np.ndarray = None, title: str = "Segmentation Masks and Texture Features"):
-        """Visualize segmentation mask and texture feature maps"""
+                    orientation: np.ndarray = None, frequency: np.ndarray = None,
+                    energy: np.ndarray = None, title: str = "Segmentation Masks and Texture Features"):
+        """Visualize segmentation mask and texture feature maps in grayscale"""
         if not self.show_config.get('image_masks', False):
             return
         
@@ -125,22 +125,21 @@ class VisualizationManager:
         axes[1].axis('off')
         
         if has_texture:
-            # Orientation map
-            axes[2].imshow(orientation, cmap='hsv')
+            # Orientation map in grayscale (normalize from [-π, π] to [0, 1])
+            orientation_normalized = (orientation + np.pi) / (2 * np.pi)
+            axes[2].imshow(orientation_normalized, cmap='gray')
             axes[2].set_title('Orientation Map')
             axes[2].axis('off')
             
-            # Frequency map
-            im3 = axes[3].imshow(frequency, cmap='viridis')
+            # Frequency map in grayscale
+            axes[3].imshow(frequency, cmap='gray')
             axes[3].set_title('Frequency Map')
             axes[3].axis('off')
-            plt.colorbar(im3, ax=axes[3], fraction=0.046)
             
-            # Energy map
-            im4 = axes[4].imshow(energy, cmap='plasma')
+            # Energy map in grayscale
+            axes[4].imshow(energy, cmap='gray')
             axes[4].set_title('Energy Map')
             axes[4].axis('off')
-            plt.colorbar(im4, ax=axes[4], fraction=0.046)
         
         fig.suptitle(title)
         plt.tight_layout()
@@ -390,69 +389,369 @@ class ImageSegmentor:
         return image, mask
 
 
+
+import numpy as np
+import cv2
+from scipy import ndimage
+from scipy.fft import fft2, ifft2
+
 class STFTAnalyzer:
-    """Short-Time Fourier Transform analysis for texture features"""
+    """Enhanced STFT analyzer with configurable overlapping windows"""
     
-    def __init__(self, window_size: int = 14, overlap: int = 6):
+    def __init__(self, window_size: int = 14, overlap: int = 10):
         self.window_size = window_size
         self.overlap = overlap
         self.step = window_size - overlap
+        
+        # Ensure minimum step size for heavy overlap
+        if self.step < 1:
+            self.step = 1
+            self.overlap = window_size - 1
     
-    def analyze(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Perform STFT analysis to extract orientation, frequency, energy"""
+    def analyze(self, image: np.ndarray) -> tuple:
+        """Enhanced STFT analysis with heavy overlapping and smooth blending"""
+        # Normalize image first
+        image = self._normalize_image(image)
+        
         h, w = image.shape
         orientation = np.zeros((h, w))
         frequency = np.zeros((h, w))
         energy = np.zeros((h, w))
+        weight_sum = np.zeros((h, w))  # For proper weighted averaging
         
-        for i in range(0, h - self.window_size, self.step):
-            for j in range(0, w - self.window_size, self.step):
-                block = image[i:i + self.window_size, j:j + self.window_size].astype(np.float32)
-                
-                # Apply window
-                window = np.outer(np.hanning(self.window_size), np.hanning(self.window_size))
-                windowed_block = block * window
-                
-                # FFT analysis
-                fft_block = fft2(windowed_block)
-                magnitude = np.abs(fft_block)
-                
-                # Calculate orientation and frequency
-                center = self.window_size // 2
-                y_indices, x_indices = np.meshgrid(
-                    np.arange(self.window_size) - center,
-                    np.arange(self.window_size) - center,
-                    indexing='ij'
-                )
-                
-                # Find dominant orientation
-                magnitude_shift = np.fft.fftshift(magnitude)
-                max_idx = np.unravel_index(np.argmax(magnitude_shift[center:, :]), magnitude_shift[center:, :].shape)
-                max_idx = (max_idx[0] + center, max_idx[1])
-                
-                if max_idx[0] != center or max_idx[1] != center:
-                    dominant_orientation = np.arctan2(max_idx[0] - center, max_idx[1] - center)
-                    dominant_frequency = np.sqrt((max_idx[0] - center)**2 + (max_idx[1] - center)**2)
-                else:
-                    dominant_orientation = 0
-                    dominant_frequency = 1
-                
-                # Calculate energy
-                total_energy = np.log(np.sum(magnitude) + 1e-8)
-                
-                # Fill output regions
-                end_i = min(i + self.window_size, h)
-                end_j = min(j + self.window_size, w)
-                orientation[i:end_i, j:end_j] = dominant_orientation
-                frequency[i:end_i, j:end_j] = dominant_frequency
-                energy[i:end_i, j:end_j] = total_energy
+        # Use heavy overlap (75-90%) for smoother results
+        step = max(1, self.window_size // 8)  # 87.5% overlap
         
-        # Normalize
+        # Create smooth blending window (Hann window for better blending)
+        blend_window = self._create_hann_window(self.window_size)
+        
+        # Process with heavy overlap
+        for i in range(0, h - self.window_size + 1, step):
+            for j in range(0, w - self.window_size + 1, step):
+                # Extract block with padding if needed
+                block = self._extract_padded_block(image, i, j, self.window_size)
+                
+                # Calculate local features
+                local_orientation = self._calculate_local_orientation(block)
+                local_frequency = self._calculate_local_frequency(block, local_orientation)
+                local_energy = self._calculate_local_energy(block)
+                
+                # Apply features with smooth weighting
+                for di in range(self.window_size):
+                    for dj in range(self.window_size):
+                        if i + di < h and j + dj < w:
+                            weight = blend_window[di, dj]
+                            
+                            orientation[i + di, j + dj] += local_orientation * weight
+                            frequency[i + di, j + dj] += local_frequency * weight
+                            energy[i + di, j + dj] += local_energy * weight
+                            weight_sum[i + di, j + dj] += weight
+        
+        # Normalize by weight sum
+        mask = weight_sum > 1e-10
+        orientation[mask] /= weight_sum[mask]
+        frequency[mask] /= weight_sum[mask]
+        energy[mask] /= weight_sum[mask]
+        
+        # Handle boundaries with smooth extension
+        orientation = self._smooth_boundaries(orientation, mask)
+        frequency = self._smooth_boundaries(frequency, mask)
+        energy = self._smooth_boundaries(energy, mask)
+        
+        # Apply final smoothing to remove any remaining artifacts
+        orientation = self._smooth_orientation_field(orientation, sigma=1.5)
+        frequency = self._smooth_field(frequency, sigma=1.0)
+        energy = self._smooth_field(energy, sigma=1.0)
+        
+        # Normalize to proper ranges
         orientation = np.arctan2(np.sin(orientation), np.cos(orientation))
-        frequency = (frequency - np.min(frequency)) / (np.max(frequency) - np.min(frequency) + 1e-8)
-        frequency = (frequency - 0.5) * 2 * np.pi  # Scale to [-π, π]
+        frequency = self._normalize_to_01(frequency)
+        energy = self._normalize_to_01(energy)
         
         return orientation, frequency, energy
+
+    def _create_hann_window(self, size: int) -> np.ndarray:
+        """Create 2D Hann window for smooth blending"""
+        hann_1d = np.hanning(size)
+        hann_2d = np.outer(hann_1d, hann_1d)
+        return hann_2d
+
+    def _extract_padded_block(self, image: np.ndarray, i: int, j: int, size: int) -> np.ndarray:
+        """Extract block with reflection padding if needed"""
+        h, w = image.shape
+        
+        # Calculate actual block boundaries
+        i_start, i_end = i, min(i + size, h)
+        j_start, j_end = j, min(j + size, w)
+        
+        # Extract the block
+        block = image[i_start:i_end, j_start:j_end]
+        
+        # Pad if necessary using reflection
+        if block.shape != (size, size):
+            pad_h = size - block.shape[0]
+            pad_w = size - block.shape[1]
+            block = np.pad(block, ((0, pad_h), (0, pad_w)), mode='reflect')
+        
+        return block
+
+    def _smooth_boundaries(self, data: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Smooth boundary regions using inpainting"""
+        if not np.any(~mask):
+            return data
+        
+        # Convert to uint8 for inpainting
+        data_norm = ((data - np.min(data)) / (np.max(data) - np.min(data) + 1e-8) * 255).astype(np.uint8)
+        mask_uint8 = (~mask).astype(np.uint8) * 255
+        
+        # Apply inpainting
+        if np.any(mask_uint8):
+            filled = cv2.inpaint(data_norm, mask_uint8, 5, cv2.INPAINT_TELEA)
+            # Convert back to original range
+            data = filled.astype(np.float64) / 255.0 * (np.max(data) - np.min(data)) + np.min(data)
+        
+        return data
+
+    def _smooth_orientation_field(self, orientation: np.ndarray, sigma: float = 1.5) -> np.ndarray:
+        """Smooth orientation field preserving discontinuities"""
+        # Convert to complex representation for smooth averaging
+        complex_orient = np.exp(2j * orientation)
+        
+        # Apply Gaussian smoothing to real and imaginary parts
+        real_smooth = cv2.GaussianBlur(complex_orient.real, (0, 0), sigma)
+        imag_smooth = cv2.GaussianBlur(complex_orient.imag, (0, 0), sigma)
+        
+        # Convert back to orientation
+        smoothed_orient = np.angle(real_smooth + 1j * imag_smooth) / 2
+        return smoothed_orient
+
+    def _smooth_field(self, field: np.ndarray, sigma: float = 1.0) -> np.ndarray:
+        """Apply Gaussian smoothing to remove artifacts"""
+        return cv2.GaussianBlur(field, (0, 0), sigma)
+
+    def _calculate_local_orientation(self, block: np.ndarray) -> float:
+        """Calculate local ridge orientation using improved gradient method"""
+        # Apply slight Gaussian blur to reduce noise
+        block = cv2.GaussianBlur(block, (3, 3), 0.8)
+        
+        # Calculate gradients using Sobel operators
+        gx = cv2.Sobel(block, cv2.CV_64F, 1, 0, ksize=5)
+        gy = cv2.Sobel(block, cv2.CV_64F, 0, 1, ksize=5)
+        
+        # Calculate orientation tensor components with center weighting
+        center_weight = self._create_hann_window(block.shape[0])
+        
+        gxx = gx * gx * center_weight
+        gyy = gy * gy * center_weight
+        gxy = gx * gy * center_weight
+        
+        # Weighted averages
+        avg_gxx = np.sum(gxx)
+        avg_gyy = np.sum(gyy)
+        avg_gxy = np.sum(gxy)
+        
+        # Calculate orientation (ridge direction is perpendicular to gradient)
+        if abs(avg_gxx - avg_gyy) > 1e-10 or abs(avg_gxy) > 1e-10:
+            orientation = 0.5 * np.arctan2(2 * avg_gxy, avg_gxx - avg_gyy)
+        else:
+            orientation = 0
+        
+        return orientation
+
+    def _calculate_local_frequency(self, block: np.ndarray, orientation: float) -> float:
+        """Calculate local ridge frequency using improved projection method"""
+        h, w = block.shape
+        center_x, center_y = w // 2, h // 2
+        
+        # Create projection perpendicular to ridge orientation
+        projection_angle = orientation + np.pi / 2
+        
+        # Collect signature along multiple parallel lines for robustness
+        signatures = []
+        for offset in range(-3, 4):  # More parallel projections
+            signature = []
+            for t in range(-min(center_x, center_y) + 8, min(center_x, center_y) - 8):
+                x = int(center_x + t * np.cos(projection_angle) + offset * np.cos(orientation))
+                y = int(center_y + t * np.sin(projection_angle) + offset * np.sin(orientation))
+                
+                if 0 <= x < w and 0 <= y < h:
+                    signature.append(block[y, x])
+            
+            if len(signature) > 15:
+                signatures.append(signature)
+        
+        if not signatures:
+            return 0.1
+        
+        # Average the signatures with length normalization
+        min_len = min(len(sig) for sig in signatures)
+        avg_signature = np.mean([sig[:min_len] for sig in signatures], axis=0)
+        
+        # Apply stronger smoothing
+        if len(avg_signature) > 7:
+            avg_signature = cv2.GaussianBlur(avg_signature.reshape(-1, 1), (7, 1), 1.5).flatten()
+        
+        # Estimate frequency using autocorrelation
+        frequency = self._estimate_frequency_autocorr(avg_signature)
+        return frequency
+
+    def _calculate_local_energy(self, block: np.ndarray) -> float:
+        """Calculate local energy using variance with center weighting"""
+        center_weight = self._create_hann_window(block.shape[0])
+        weighted_mean = np.sum(block * center_weight) / np.sum(center_weight)
+        weighted_var = np.sum(((block - weighted_mean) ** 2) * center_weight) / np.sum(center_weight)
+        return np.sqrt(weighted_var)  # Use standard deviation instead of variance
+
+    def _estimate_frequency_autocorr(self, signature: np.ndarray) -> float:
+        """Estimate frequency using autocorrelation method"""
+        if len(signature) < 12:
+            return 0.1
+        
+        # Remove DC component and apply window
+        signature = signature - np.mean(signature)
+        signature = signature * np.hanning(len(signature))
+        
+        # Compute autocorrelation
+        autocorr = np.correlate(signature, signature, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        
+        # Normalize
+        if autocorr[0] > 0:
+            autocorr = autocorr / autocorr[0]
+        
+        # Find first significant peak (skip lag 0)
+        peaks = []
+        for i in range(4, min(len(autocorr)//2, 25)):  # Look for peaks between 4-25 pixels
+            if i < len(autocorr) - 1:
+                if (autocorr[i] > autocorr[i-1] and autocorr[i] > autocorr[i+1] and 
+                    autocorr[i] > 0.2):  # Lower threshold for better detection
+                    peaks.append((i, autocorr[i]))
+        
+        if peaks:
+            # Use the strongest peak within reasonable range
+            peaks.sort(key=lambda x: x[1], reverse=True)
+            period = peaks[0][0]
+            frequency = 1.0 / period
+        else:
+            frequency = 0.1  # Default frequency
+        
+        # Normalize frequency to reasonable range
+        return np.clip(frequency, 0.04, 0.4)
+
+    def _normalize_image(self, image: np.ndarray) -> np.ndarray:
+        """Normalize image to [0, 1] range"""
+        image = image.astype(np.float64)
+        return (image - np.min(image)) / (np.max(image) - np.min(image) + 1e-8)
+
+    def _normalize_to_01(self, data: np.ndarray) -> np.ndarray:
+        """Normalize data to [0, 1] range"""
+        return (data - np.min(data)) / (np.max(data) - np.min(data) + 1e-8)
+
+
+def apply_enhanced_gabor_filter(image: np.ndarray, orientation: np.ndarray, 
+                               window_size: int = 31, overlap_ratio: float = 0.75) -> np.ndarray:
+    """
+    Apply overlapping Gabor filtering with smooth blending to avoid artifacts
+    
+    Args:
+        image: Input image
+        orientation: Orientation field
+        window_size: Size of processing windows (default 31)
+        overlap_ratio: Overlap ratio between windows (default 0.75)
+    """
+    h, w = image.shape
+    filtered = np.zeros_like(image, dtype=np.float32)
+    weight_sum = np.zeros_like(image, dtype=np.float32)
+    
+    # Calculate step size based on overlap ratio
+    step = max(1, int(window_size * (1 - overlap_ratio)))
+    
+    # Pre-compute Gabor kernels for different orientations
+    sigma = window_size / 8.0
+    lambd = window_size / 4.0
+    gamma = 0.5
+    
+    # Quantize orientations to reduce computation
+    num_orientations = 24  # Increased for better quality
+    orientation_bins = np.linspace(-np.pi/2, np.pi/2, num_orientations, endpoint=False)
+    
+    # Pre-compute kernels
+    kernels = {}
+    for i, angle in enumerate(orientation_bins):
+        kernels[i] = cv2.getGaborKernel((window_size, window_size), sigma, angle, 
+                                      lambd, gamma, 0, cv2.CV_32F)
+    
+    # Create blending window
+    blend_window = np.outer(np.hanning(window_size), np.hanning(window_size))
+    
+    # Process overlapping windows
+    for i in range(0, h - window_size + step, step):
+        for j in range(0, w - window_size + step, step):
+            # Extract window
+            i_end = min(i + window_size, h)
+            j_end = min(j + window_size, w)
+            
+            window_img = image[i:i_end, j:j_end]
+            window_orient = orientation[i:i_end, j:j_end]
+            
+            # Pad if necessary
+            if window_img.shape != (window_size, window_size):
+                pad_h = window_size - window_img.shape[0]
+                pad_w = window_size - window_img.shape[1]
+                window_img = np.pad(window_img, ((0, pad_h), (0, pad_w)), mode='reflect')
+                window_orient = np.pad(window_orient, ((0, pad_h), (0, pad_w)), mode='reflect')
+            
+            # Determine dominant orientation in window
+            avg_orientation = np.mean(window_orient)
+            
+            # Find closest orientation bin
+            orientation_idx = np.argmin(np.abs(orientation_bins - avg_orientation))
+            
+            # Apply Gabor filter
+            filtered_window = cv2.filter2D(window_img, cv2.CV_32F, kernels[orientation_idx])
+            
+            # Apply blending weights
+            filtered_window = filtered_window * blend_window
+            weight_window = blend_window.copy()
+            
+            # Add to result with proper bounds checking
+            actual_h = min(window_size, h - i)
+            actual_w = min(window_size, w - j)
+            
+            filtered[i:i+actual_h, j:j+actual_w] += filtered_window[:actual_h, :actual_w]
+            weight_sum[i:i+actual_h, j:j+actual_w] += weight_window[:actual_h, :actual_w]
+    
+    # Normalize by weights
+    mask = weight_sum > 1e-10
+    filtered[mask] /= weight_sum[mask]
+    
+    # Handle areas with no coverage (shouldn't happen with proper overlap)
+    if np.any(~mask):
+        filtered[~mask] = image[~mask]
+    
+    # Final smoothing to remove any remaining artifacts
+    filtered = cv2.GaussianBlur(filtered, (3, 3), 0.5)
+    
+    return np.clip(filtered, 0, 255).astype(np.uint8)
+
+
+def apply_enhanced_smqt(image: np.ndarray, tile_size: int = 8, clip_limit: float = 3.0) -> np.ndarray:
+    """
+    Enhanced SMQT using adaptive CLAHE with overlapping tiles
+    
+    Args:
+        image: Input image
+        tile_size: Size of CLAHE tiles (default 8)
+        clip_limit: Clipping limit for CLAHE (default 3.0)
+    """
+    # Apply CLAHE with smaller tiles for better local adaptation
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_size, tile_size))
+    enhanced = clahe.apply(image)
+    
+    # Apply additional smoothing to reduce tile artifacts
+    enhanced = cv2.bilateralFilter(enhanced, 5, 20, 20)
+    
+    return enhanced
 
 
 class FingerprintEnhancer:
@@ -463,34 +762,50 @@ class FingerprintEnhancer:
         self.stft_analyzer = STFTAnalyzer()
         self.visualizer = visualizer
     
-    def enhance(self, image: np.ndarray, image_name: str = "fingerprint") -> Dict[str, np.ndarray]:
-        """Apply STFT + Gabor + SMQT enhancement pipeline"""
+    def enhance(self, image: np.ndarray, image_name: str = "fingerprint", 
+                                    stft_window_size: int = 16, stft_overlap: int = 12,
+                                    gabor_window_size: int = 31, gabor_overlap_ratio: float = 0.8) -> dict:
+        """
+        Enhanced fingerprint enhancement pipeline with configurable overlapping windows
+        
+        Args:
+            image: Input fingerprint image
+            image_name: Name for visualization
+            stft_window_size: Window size for STFT analysis
+            stft_overlap: Overlap size for STFT windows
+            gabor_window_size: Window size for Gabor filtering
+            gabor_overlap_ratio: Overlap ratio for Gabor filtering (0.0 to 0.95)
+        """
+        # Normalize image to [0, 1] first
+        normalized_image = self._normalize_image(image)
+        
         # Show original image
         if self.visualizer:
             self.visualizer.show_image_loaded(image, f"Loaded Image: {image_name}")
         
-        # Segmentation
+        # Segmentation (use original for better thresholding)
         segmented, mask = self.segmentor.segment(image)
         
         # Show segmentation result
         if self.visualizer:
             self.visualizer.show_image_segmented(image, segmented, "Segmentation Result")
         
-        # STFT analysis
-        orientation, frequency, energy = self.stft_analyzer.analyze(segmented)
+        # Enhanced STFT analysis with configurable windows
+        stft_analyzer = STFTAnalyzer(window_size=stft_window_size, overlap=stft_overlap)
+        orientation, frequency, energy = stft_analyzer.analyze(normalized_image)
         
         # Show masks and texture features
         if self.visualizer:
             self.visualizer.show_image_masks(image, mask, orientation, frequency, energy,
-                                           "Segmentation Mask and Texture Features")
+                                        "Segmentation Mask and Texture Features")
         
-        # Gabor filtering
-        gabor_enhanced = self._apply_gabor_filter(segmented, orientation)
+        # Enhanced Gabor filtering with overlapping windows
+        gabor_enhanced = apply_enhanced_gabor_filter(segmented, orientation, 
+                                                gabor_window_size, gabor_overlap_ratio)
         
-        # SMQT normalization
-        final_enhanced = self._apply_smqt(gabor_enhanced)
+        # Enhanced SMQT
+        final_enhanced = apply_enhanced_smqt(gabor_enhanced)
         
-        # Show enhancement pipeline
         if self.visualizer:
             self.visualizer.show_enhancement_pipeline(image, segmented, gabor_enhanced, final_enhanced,
                                                     "Complete Enhancement Pipeline")
@@ -504,22 +819,65 @@ class FingerprintEnhancer:
             'energy': energy,
             'gabor_filtered': gabor_enhanced
         }
-    
-    def _apply_gabor_filter(self, image: np.ndarray, orientation: np.ndarray) -> np.ndarray:
-        """Apply Gabor filtering based on local orientation"""
-        filtered = np.zeros_like(image, dtype=np.float32)
-        block_size = 16
         
-        for i in range(0, image.shape[0] - block_size, block_size):
-            for j in range(0, image.shape[1] - block_size, block_size):
-                block = image[i:i+block_size, j:j+block_size]
-                local_orient = orientation[i + block_size//2, j + block_size//2]
-                
-                # Create Gabor kernel
-                kernel = cv2.getGaborKernel((block_size, block_size), 2, local_orient, 
-                                          2*np.pi/8, 0.5, 0, cv2.CV_32F)
-                filtered_block = cv2.filter2D(block.astype(np.float32), cv2.CV_32F, kernel)
-                filtered[i:i+block_size, j:j+block_size] = filtered_block
+
+    def _normalize_image(self, image: np.ndarray) -> np.ndarray:
+        """Normalize image to [0, 1] range"""
+        image = image.astype(np.float32)
+        return (image - np.min(image)) / (np.max(image) - np.min(image) + 1e-8)
+
+    def _apply_gabor_filter(self, image: np.ndarray, orientation: np.ndarray) -> np.ndarray:
+        """Apply pixel-wise adaptive Gabor filtering for smooth results"""
+        filtered = np.zeros_like(image, dtype=np.float32)
+        
+        # Pre-compute Gabor kernels for different orientations
+        kernel_size = 31
+        sigma = 4.0
+        lambd = 8.0
+        gamma = 0.5
+        
+        # Quantize orientations to reduce computation
+        num_orientations = 16
+        orientation_bins = np.linspace(-np.pi/2, np.pi/2, num_orientations, endpoint=False)
+        
+        # Pre-compute kernels
+        kernels = {}
+        for i, angle in enumerate(orientation_bins):
+            kernels[i] = cv2.getGaborKernel((kernel_size, kernel_size), sigma, angle, 
+                                        lambd, gamma, 0, cv2.CV_32F)
+        
+        # Create orientation index map
+        orientation_indices = np.zeros_like(orientation, dtype=int)
+        for i, angle in enumerate(orientation_bins):
+            if i == 0:
+                mask = orientation <= (orientation_bins[0] + orientation_bins[1]) / 2
+            elif i == len(orientation_bins) - 1:
+                mask = orientation > (orientation_bins[-2] + orientation_bins[-1]) / 2
+            else:
+                mask = ((orientation > (orientation_bins[i-1] + orientation_bins[i]) / 2) & 
+                    (orientation <= (orientation_bins[i] + orientation_bins[i+1]) / 2))
+            orientation_indices[mask] = i
+        
+        # Apply filtering with interpolation between adjacent orientations
+        pad_size = kernel_size // 2
+        padded_image = cv2.copyMakeBorder(image, pad_size, pad_size, pad_size, pad_size, 
+                                        cv2.BORDER_REFLECT)
+        
+        for i in range(num_orientations):
+            # Find pixels that should use this orientation
+            mask = orientation_indices == i
+            if not np.any(mask):
+                continue
+            
+            # Apply Gabor filter
+            kernel_response = cv2.filter2D(padded_image, cv2.CV_32F, kernels[i])
+            kernel_response = kernel_response[pad_size:-pad_size, pad_size:-pad_size]
+            
+            # Assign to output
+            filtered[mask] = kernel_response[mask]
+        
+        # Smooth transitions between different orientation regions
+        filtered = cv2.GaussianBlur(filtered, (3, 3), 0.5)
         
         return np.clip(filtered, 0, 255).astype(np.uint8)
     
