@@ -191,7 +191,8 @@ class ImageEnhancer:
 class MinutiaeExtractor:
     def extract(self, image: np.ndarray, vis_config: VisualizationConfig) -> List[Minutia]:
         """Extract minutiae using a simplified approach."""
-        _, binary = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        image_uint8 = (image * 255 / np.max(image)).astype(np.uint8)
+        _, binary = cv2.threshold(image_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         Visualizer.plot_image(binary, "Binary Image", vis_config.show_steps['binary_image'])
         skeleton = morphology.skeletonize(binary // 255).astype(np.uint8)
         minutiae = []
@@ -203,7 +204,7 @@ class MinutiaeExtractor:
                         theta = np.arctan2(skeleton[i+1, j] - skeleton[i-1, j], skeleton[i, j+1] - skeleton[i, j-1])
                         minutiae.append(Minutia(x=j, y=i, theta=theta, quality=1.0))
         Visualizer.plot_minutiae(image, minutiae, "Minutiae Plots", vis_config.show_steps['minutiae_plots'])
-        return minute
+        return minutiae
 
 class CylinderFactory:
     def __init__(self, radius: int = 63, ns: int = 18, nd: int = 5):
@@ -246,9 +247,9 @@ class CylinderFactory:
         return np.array([minutia.x, minutia.y]) + self.delta_s * rotation @ offset
 
     def _compute_contribution(self, minutia: Minutia, minutiae: List[Minutia], 
-                            p_ij: np.ndarray, d_sk: float, 
-                            orientation: np.ndarray, frequency: np.ndarray, 
-                            energy: np.ndarray) -> float:
+                         p_ij: np.ndarray, d_sk: float, 
+                         orientation: np.ndarray, frequency: np.ndarray, 
+                         energy: np.ndarray) -> float:
         """Compute cell contribution using texture features."""
         spatial_sigma = self.R / 3
         directional_sigma = np.pi / 6
@@ -260,13 +261,13 @@ class CylinderFactory:
         
         total_contribution = 0.0
         for neighbor in neighbors:
-            spatial_dist = np.linalg.norm([neighbor.x - p_ij[0], m.y - p_ij[1]])
+            spatial_dist = np.linalg.norm([neighbor.x - p_ij[0], neighbor.y - p_ij[1]])
             spatial_contrib = np.exp(-spatial_dist**2 / (2 * spatial_sigma**2))
             
             y, x = int(minutia.y), int(minutia.x)
             py, px = int(p_ij[1]), int(p_ij[0])
             if 0 <= y < frequency.shape[0] and 0 <= x < frequency.shape[1] and \
-               0 <= py < frequency.shape[0] and 0 <= px < frequency.shape[1]:
+            0 <= py < frequency.shape[0] and 0 <= px < frequency.shape[1]:
                 freq_diff = frequency[y, x] - frequency[py, px]
                 freq_contrib = np.exp(-freq_diff**2 / (2 * directional_sigma**2))
                 total_contribution += spatial_contrib * freq_contrib
