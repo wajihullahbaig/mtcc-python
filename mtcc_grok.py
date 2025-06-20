@@ -89,14 +89,15 @@ class FingerprintDataset:
                     self.labels.append(file.split('_')[0])
 
 class ImageEnhancer:
-    def __init__(self, window_size: int = 14, overlap: int = 6):
+    def __init__(self, window_size: int = 16, overlap: int = 8, block_size: int = 8):
         self.window_size = window_size
         self.overlap = overlap
+        self.block_size = block_size
 
     def segment(self, image: np.ndarray, vis_config: VisualizationConfig) -> np.ndarray:
         """Segment fingerprint image using block-wise variance."""
         h, w = image.shape
-        block_size = 16
+        block_size = 8
         blocks = []
         
         for i in range(0, h - block_size + 1, block_size):
@@ -167,14 +168,25 @@ class ImageEnhancer:
         return image, orientation, frequency, energy
 
     def gabor_filter(self, image: np.ndarray, orientation: np.ndarray, frequency: np.ndarray, vis_config: VisualizationConfig) -> np.ndarray:
-        """Apply Gabor filtering to smooth ridges."""
+        """Apply Gabor filtering to smooth ridges using mean orientation and frequency."""
         filtered = np.zeros_like(image, dtype=np.float32)
-        for i in range(0, image.shape[0], 16):
-            for j in range(0, image.shape[1], 16):
-                theta = orientation[i, j]
-                freq = frequency[i, j]
+        for i in range(0, image.shape[0], self.block_size):
+            for j in range(0, image.shape[1], self.block_size):
+                # Extract the block
+                block = image[i:i+self.block_size, j:j+self.block_size]
+                orient_block = orientation[i:i+self.block_size, j:j+self.block_size]
+                freq_block = frequency[i:i+self.block_size, j:j+self.block_size]
+                
+                # Compute mean theta (handle circular nature of angles)
+                theta = np.arctan2(np.mean(np.sin(orient_block)), np.mean(np.cos(orient_block)))
+                # Compute mean frequency (ensure positive)
+                freq = np.mean(freq_block[freq_block > 0]) if np.any(freq_block > 0) else 0.1  # Default to small value if all zero
+                
                 if freq > 0:
-                    filtered[i:i+16, j:j+16] = gabor(image[i:i+16, j:j+16], frequency=freq, theta=theta)[0]
+                    filtered[i:i+self.block_size, j:j+self.block_size] = gabor(block, frequency=freq, theta=theta)[0]
+                else:
+                    filtered[i:i+self.block_size, j:j+self.block_size] = block  # Preserve original block if no valid freq
+                
         Visualizer.plot_image(filtered, "Gabor Filtered Image", vis_config.show_steps['enhanced_image'])
         return filtered
 
@@ -190,20 +202,30 @@ class ImageEnhancer:
 
 class MinutiaeExtractor:
     def extract(self, image: np.ndarray, vis_config: VisualizationConfig) -> List[Minutia]:
-        """Extract minutiae using a simplified approach."""
+        """Extract minutiae using a simplified approach with improved thinning."""
+        # Convert image to uint8 for thresholding
         image_uint8 = (image * 255 / np.max(image)).astype(np.uint8)
         _, binary = cv2.threshold(image_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         Visualizer.plot_image(binary, "Binary Image", vis_config.show_steps['binary_image'])
+
+        # Apply skeletonization for single-pixel-wide ridges
         skeleton = morphology.skeletonize(binary // 255).astype(np.uint8)
+        
+        # Optional: Apply additional thinning refinement to ensure single-pixel width
+        skeleton = morphology.thin(skeleton, max_num_iter=10)
+        
+        Visualizer.plot_image(skeleton, "Thinned Skeleton", vis_config.show_steps['binary_image'])
         minutiae = []
-        for i in range(1, skeleton.shape[0]-1):
-            for j in range(1, skeleton.shape[1]-1):
+        for i in range(1, skeleton.shape[0] - 1):
+            for j in range(1, skeleton.shape[1] - 1):
                 if skeleton[i, j]:
                     neighbors = np.sum(skeleton[i-1:i+2, j-1:j+2]) - 1
-                    if neighbors in [1, 3]:
-                        theta = np.arctan2(skeleton[i+1, j] - skeleton[i-1, j], skeleton[i, j+1] - skeleton[i, j-1])
+                    if neighbors in [1, 3]:  # 1 for ending, 3 for bifurcation
+                        # Convert skeleton to integer type for subtraction
+                        skeleton_int = skeleton.astype(np.int8)
+                        theta = np.arctan2(skeleton_int[i+1, j] - skeleton_int[i-1, j], skeleton_int[i, j+1] - skeleton_int[i, j-1])
                         minutiae.append(Minutia(x=j, y=i, theta=theta, quality=1.0))
-        Visualizer.plot_minutiae(image, minutiae, "Minutiae Plots", vis_config.show_steps['minutiae_plots'])
+        Visualizer.plot_minutiae(image_uint8, minutiae, "Minutiae Plots", vis_config.show_steps['minutiae_plots'])
         return minutiae
 
 class CylinderFactory:
@@ -346,7 +368,15 @@ class FingerprintMatcher:
 
     def process_image(self, image: np.ndarray) -> List[Cylinder]:
         """Process a single fingerprint image."""
-        Visualizer.plot_image(image, "Loaded Image", self.vis_config.show_steps['loaded_image'])
+        # Normalize image to [0, 255] and convert to uint8
+        image = image.astype(np.float32)
+        if image.size > 0:
+            min_val, max_val = np.min(image), np.max(image)
+            if max_val > min_val:
+                image = ((image - min_val) / (max_val - min_val + 1e-10)) * 255
+                image = image.astype(np.uint8)
+        
+        Visualizer.plot_image(image, "Normalized Loaded Image", self.vis_config.show_steps['loaded_image'])
         mask = self.enhancer.segment(image, self.vis_config)
         enhanced, orientation, frequency, energy = self.enhancer.stft_enhance(image, self.vis_config)
         enhanced = self.enhancer.gabor_filter(enhanced, orientation, frequency, self.vis_config)
