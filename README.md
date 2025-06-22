@@ -3,8 +3,12 @@ Using June-2025, ClaudeAI,Grok, DeepSeek, Gemini Flash 2.5 to implement a Finger
 As of this date, all of them have failed. None of them could produce correct code except for Claude
 which corrected to a great level the orientation processing. 
 
+### Fail1
 Minutia seem to be detected but thinning, orientation images, freqyuency iamges was a struggle. 
+30 odd prompt requests per model but no success. MTCC paper knowledge based provided
 
+### Fail2
+Getting the sequence of events such as image enhancement, segmentation and binarization before
+minutia detection fro claude was a challenge.
 Will test again in 6 months time!
-
-30 odd prompt requests per model but no success. 
+Around 8 prompts used. Knowledge based with 3 fingerprint papers with MTCC
