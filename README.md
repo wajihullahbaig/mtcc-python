@@ -6,3 +6,5 @@ which corrected to a great level the orientation processing.
 Minutia seem to be detected but thinning, orientation images, freqyuency iamges was a struggle. 
 
 Will test again in 6 months time!
+
+30 odd prompt requests per model but no success. 
