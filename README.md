@@ -1,5 +1,5 @@
 # mtcc-python
-Using June-2025, ClaudeAI,Grok, DeepSeek, Gemini Flash 2.5 to implement a Fingerprint paper, MTCC
+Using June-2025, ClaudeAI-sonnet,Grok3, DeepSeek-V3 (non-thinking), Gemini Flash 2.5 (thinking) to implement a Fingerprint paper, MTCC
 As of this date, all of them have failed. None of them could produce correct code except for Claude
 which corrected to a great level the orientation processing. 
 
@@ -7,7 +7,8 @@ which corrected to a great level the orientation processing.
 Minutia seem to be detected but thinning, orientation images, freqyuency iamges was a struggle. 
 30 odd prompt requests per model but no success. MTCC paper knowledge based provided
 
-### Fail2
+### Fail2 ClaudeAI-sonnet,Grok3
+
 Getting the sequence of events such as image enhancement, segmentation and binarization before
 minutia detection fro claude was a challenge.
 Will test again in 6 months time!
