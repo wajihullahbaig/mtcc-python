@@ -13,3 +13,12 @@ Getting the sequence of events such as image enhancement, segmentation and binar
 minutia detection fro claude was a challenge.
 Will test again in 6 months time!
 Around 8 prompts used. Knowledge based with 3 fingerprint papers with MTCC
+
+
+### Fail3 OpenAI, GPT4o, 4.1 mini, o3
+
+Much better code than other models. On first run the code actuall ran through but 
+gave no output. Tried to fixed gabor filters issue and it kept failing and artefacts
+did not go away. Binarization was ok, so was thinning but no minutiae detected.
+
+Much better and cleaner codes compared to other models I may safely say!
