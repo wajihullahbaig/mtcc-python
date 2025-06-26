@@ -4,6 +4,7 @@ from scipy import signal
 from scipy.fft import fft2, ifft2
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
+from skimage.morphology import skeletonize
 
 def load_fingerprint_image(image_path):
     """Load and convert fingerprint image to grayscale."""
@@ -99,7 +100,10 @@ def stft_analysis(img, block_size=14, overlap=6):
 def binarize_and_thin(img, threshold=128):
     """Binarize and thin the fingerprint image."""
     _, binary = cv2.threshold(img, threshold, 255, cv2.THRESH_BINARY_INV)
-    thinned = cv2.ximgproc.thinning(binary)
+        
+    # Apply thinning using scikit-image
+    binary_bool = (binary / 255).astype(bool)
+    thinned = skeletonize(binary_bool).astype(np.uint8) * 255
     return thinned
 
 def extract_minutiae(thinned_img):
@@ -230,7 +234,6 @@ def main():
     """Main function to demonstrate MTCC pipeline."""
     img1_path = R'C:\Users\Precision\Onus\Data\FVC-DataSets\DataSets\FVC2000\FVC2000\Db1_a\1_1.tif'
     img2_path = R'C:\Users\Precision\Onus\Data\FVC-DataSets\DataSets\FVC2000\FVC2000\Db1_a\1_2.tif'
-    
     
     # Visualize processing steps for first image
     visualize_steps(img1_path)
