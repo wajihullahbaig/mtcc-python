@@ -1,0 +1,38 @@
+{
+  "database": "DB1_A",
+  "total_images": 2,
+  "processed_images": 2,
+  "failed_images": [],
+  "unique_fingers": 1,
+  "genuine_pairs": 1,
+  "impostor_pairs": 0,
+  "eer": 1.0,
+  "genuine_scores": {
+    "mean": 0.0,
+    "std": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "count": 1
+  },
+  "impostor_scores": {
+    "mean": 0,
+    "std": 0,
+    "min": 0,
+    "max": 0,
+    "count": 0
+  },
+  "timing": {
+    "avg_processing_time": 6.624663472175598,
+    "avg_matching_time": 0.0,
+    "total_processing_time": 13.249326944351196,
+    "total_matching_time": 0.0
+  },
+  "minutiae_stats": {
+    "avg_minutiae": 0.0,
+    "avg_cylinders": 0.0
+  },
+  "genuine_scores_list": [
+    0.0
+  ],
+  "impostor_scores_list": []
+}

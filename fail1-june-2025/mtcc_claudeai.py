@@ -763,7 +763,7 @@ class FingerprintEnhancer:
         self.visualizer = visualizer
     
     def enhance(self, image: np.ndarray, image_name: str = "fingerprint", 
-                                    stft_window_size: int = 16, stft_overlap: int = 12,
+                                    stft_window_size: int = 24, stft_overlap: int = 16,
                                     gabor_window_size: int = 31, gabor_overlap_ratio: float = 0.8) -> dict:
         """
         Enhanced fingerprint enhancement pipeline with configurable overlapping windows
