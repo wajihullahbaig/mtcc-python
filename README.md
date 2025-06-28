@@ -3,6 +3,8 @@ Using June-2025, ClaudeAI-sonnet,Grok3, DeepSeek-V3 (non-thinking), Gemini Flash
 As of this date, all of them have failed. None of them could produce correct code except for Claude
 which corrected to a great level the orientation processing. 
 
+[MTCC: Minutiae Template Cylinder Codes for Fingerprint Matching (arXiv:1807.02251)](https://arxiv.org/abs/1807.02251)
+
 ### Fail1
 Minutia seem to be detected but thinning, orientation images, freqyuency iamges was a struggle. 
 30 odd prompt requests per model but no success. MTCC paper knowledge based provided
@@ -31,3 +33,4 @@ Get one thing done, the next breaks down.
 
 The major issue remains STFT analysis and Gabor filtering, they faulter. So bad that it is a shame
 that the models cannot still replace me :)
+
