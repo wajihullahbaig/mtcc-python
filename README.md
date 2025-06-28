@@ -1,5 +1,5 @@
 # mtcc-python
-Using June-2025, ClaudeAI-sonnet,Grok3, DeepSeek-V3 (non-thinking), Gemini Flash 2.5 (thinking) to implement a Fingerprint paper, MTCC
+Using June-2025, ClaudeAI-sonnet,Grok3, DeepSeek-V3 (non-thinking), Gemini Flash 2.5 (thinking) to implement a Fingerprint paper, MTCC (my paper from 2018)
 As of this date, all of them have failed. None of them could produce correct code except for Claude
 which corrected to a great level the orientation processing. 
 
@@ -22,3 +22,12 @@ gave no output. Tried to fixed gabor filters issue and it kept failing and artef
 did not go away. Binarization was ok, so was thinning but no minutiae detected.
 
 Much better and cleaner codes compared to other models I may safely say!
+
+
+### Fail4-5 OpenAI, GPT4o, 4.1 mini, o3, Gemini 2.5flash, ClaudeAi (sonnet and opus)
+
+Create a better prompt and changes some research papers. As of now, the issue remains circular. 
+Get one thing done, the next breaks down.
+
+The major issue remains STFT analysis and Gabor filtering, they faulter. So bad that it is a shame
+that the models cannot still replace me :)
