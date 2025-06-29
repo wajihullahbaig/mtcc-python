@@ -54,7 +54,7 @@ cd mtcc-python
 uv sync
 
 # Or install with pip
-pip install -r requirements.txt
+pip install .
 ```
 
 ## Dependencies

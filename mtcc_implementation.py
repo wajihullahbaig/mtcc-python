@@ -105,9 +105,12 @@ def estimate_orientation_frequency(img: np.ndarray, block_size: int = 16) -> Tup
     orientation_map = np.zeros((h, w), dtype=np.float32)
     frequency_map = np.zeros((h, w), dtype=np.float32)
     
+    # Ensure image is in proper format for OpenCV
+    img_uint8 = (img * 255).astype(np.uint8)
+    
     # Gradient calculation
-    gx = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
+    gx = cv2.Sobel(img_uint8, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(img_uint8, cv2.CV_32F, 0, 1, ksize=3)
     
     for i in range(block_size//2, h - block_size//2, block_size//2):
         for j in range(block_size//2, w - block_size//2, block_size//2):
@@ -238,7 +241,7 @@ def create_gabor_filter(size: int, orientation: float, frequency: float,
     return gabor
 
 
-def smqt(img: np.ndarray, levels: int = 8) -> np.ndarray:
+def smqt(img: np.ndarray, levels: int = 4) -> np.ndarray:
     """
     Successive Mean Quantization Transform as per [11].
     Enhances low-contrast ridges before STFT analysis.
@@ -247,13 +250,13 @@ def smqt(img: np.ndarray, levels: int = 8) -> np.ndarray:
     
     for level in range(levels):
         # Calculate local mean using sliding window
-        kernel_size = 3 + 2 * level  # Increasing window size
+        kernel_size = 3 + level  # Smaller increasing window size
         kernel = np.ones((kernel_size, kernel_size)) / (kernel_size * kernel_size)
         local_mean = cv2.filter2D(enhanced, -1, kernel)
         
-        # Quantization step
+        # Quantization step with more conservative thresholding
         diff = enhanced - local_mean
-        threshold = np.std(diff) / (2 ** level)
+        threshold = np.std(diff) / (1.5 ** level)  # Less aggressive smoothing
         
         # Apply quantization
         enhanced = np.where(diff > threshold, local_mean + threshold,
@@ -341,14 +344,46 @@ def binarize_thin(img: np.ndarray) -> np.ndarray:
     """
     Adaptive thresholding followed by Zhang-Suen thinning.
     """
-    # Adaptive thresholding
-    binary = cv2.adaptiveThreshold(
-        img.astype(np.uint8), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 11, 2
+    # Convert to uint8 if needed
+    if img.dtype != np.uint8:
+        img_uint8 = img.astype(np.uint8)
+    else:
+        img_uint8 = img
+    
+    # Try multiple binarization approaches
+    # 1. Adaptive thresholding with larger block size
+    binary1 = cv2.adaptiveThreshold(
+        img_uint8, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY, 21, 5
     )
     
-    # Invert so ridges are white
-    binary = 255 - binary
+    # 2. Otsu's thresholding
+    _, binary2 = cv2.threshold(img_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # 3. Simple thresholding at mean - 10
+    mean_val = np.mean(img_uint8) - 10
+    _, binary3 = cv2.threshold(img_uint8, mean_val, 255, cv2.THRESH_BINARY)
+    
+    # Choose the best binary image (one with reasonable number of white pixels)
+    white_pixels = [np.sum(b < 128) for b in [binary1, binary2, binary3]]  # Count dark pixels (ridges)
+    total_pixels = img_uint8.size
+    
+    # Select binary image with 10-40% dark pixels (reasonable for fingerprints)
+    best_binary = binary1  # default
+    best_ratio = 0
+    for i, wp in enumerate(white_pixels):
+        ratio = wp / total_pixels
+        if 0.10 <= ratio <= 0.40 and ratio > best_ratio:
+            best_binary = [binary1, binary2, binary3][i]
+            best_ratio = ratio
+    
+    # Invert so ridges are white (we want ridges to be white for thinning)
+    binary = 255 - best_binary
+    
+    # Apply morphological operations to clean up
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
     
     # Zhang-Suen thinning
     skeleton = zhang_suen_thinning(binary)
@@ -665,7 +700,7 @@ def process_fingerprint(image_path: str, visualize: bool = False) -> Tuple[List[
     minutiae = extract_minutiae(skeleton)
     
     # Create minutiae overlay
-    minutiae_overlay = img.copy()
+    minutiae_overlay = img.copy().astype(np.uint8)
     for x, y, angle, mtype in minutiae:
         color = 255 if mtype == "termination" else 128
         cv2.circle(minutiae_overlay, (x, y), 3, color, -1)
