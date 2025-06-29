@@ -68,13 +68,29 @@ Much better and cleaner codes compared to other models I may safely say!
 #### Prompt
 
 ```
-Given the research papers we need to implement MTCC. Generally I will outline what steps or functions are needed to get to MTCC features 1- fingerprint image loading 2- Image normalization 3- Segmentation 4- Gabor filter enhancements. Very important! 5- SMQT (Successive Mean Quantization Transform) 6- STFT Analysis for creating features for MTCC 7- Image binarization and thinning 8- Minutae extraction 7- Cylinder creation 8- Matching 9- EERs calculations 10- Two finger matching functions. 11- Visualation for steps between step 1 and 8 in a single figure. If we can get this together in such a way that the code is nead, clean, modular, small functions This will really help. Get things simple enough. Function by function. In a single file. 
+
+1- fingerprint image loading
+2- Image normalization
+3- Segmentation
+4- Gabor filter enhancements. Very important!
+5- SMQT (Successive Mean Quantization Transform)
+6- STFT Analysis for creating features for MTCC
+7- Image binarization and thinning
+8- Minutae extraction
+7- Cylinder creation
+8- Matching
+9- EERs calculations
+10- Two finger matching functions. 
+11- Visualation for steps between step 1 and 8 in a single figure. 
+
+If we can get this together in such  a way that the code is nead, clean, modular, small functions 
+This will really help. Get things simple enough. Function by function. In a single file
 
 ```
 
 ### Fail4-6 OpenAI, GPT4o, 4.1 mini, o3, Gemini 2.5flash, ClaudeAi (sonnet and opus)
 
-Create a better prompt and changes some research papers. As of now, the issue remains circular. 
+Created a better prompt and changes some research papers. As of now, the issue remains circular. 
 Get one thing done, the next breaks down.
 
 The major issue remains STFT analysis and Gabor filtering, they faulter. So bad that it is a shame
