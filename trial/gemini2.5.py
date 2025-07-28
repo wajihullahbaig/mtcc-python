@@ -618,7 +618,6 @@ class _CoreFingerprintImageEnhancer: # Renamed to private to avoid confusion wit
         return self._binim
 
 
-# -----------------------------------------------------------------------------
 # 0. Configuration / Parameters
 # -----------------------------------------------------------------------------
 class MTCCParameters:
@@ -994,13 +993,13 @@ class MTCCDescriptorGenerator:
             cylinder = self._create_3d_cylinder(central_minutia)
 
             neighbor_minutiae_in_range = []
-            for other_minutia in minutiae_list:
-                if other_minutia == central_minutia:
+            for other_minutiae in minutiae_list:
+                if other_minutiae == central_minutia:
                     continue
-                dist_sq = (central_minutia['x'] - other_minutia['x'])**2 + \
-                          (central_minutia['y'] - other_minutia['y'])**2
+                dist_sq = (central_minutia['x'] - other_minutiae['x'])**2 + \
+                          (central_minutia['y'] - other_minutiae['y'])**2
                 if dist_sq <= self.radius**2:
-                    neighbor_minutiae_in_range.append(other_minutia)
+                    neighbor_minutiae_in_range.append(other_minutiae)
 
             cm_x, cm_y = central_minutia['x'], central_minutia['y']
             if not (0 <= cm_y < img_h and 0 <= cm_x < img_w):
@@ -1476,12 +1475,12 @@ class MTCCPipelineVisualizer:
             axes[0, 2].imshow(pipeline_output['gabor_enhanced_binary_img'], cmap='gray'); axes[0, 2].set_title("3. Gabor Enhanced Binary")
             axes[0, 3].imshow(pipeline_output['thinned_skeleton'], cmap='gray'); axes[0, 3].set_title("4. Thinned Skeleton (Minutiae Extractor)")
 
-            # Row 2: Feature Maps (from STFT, used for MTCC descriptors)
-            stft_orientation_for_plot = (pipeline_output['stft_orientation_map'] - np.min(pipeline_output['stft_orientation_map'])) / (np.max(pipeline_output['stft_orientation_map']) - np.min(pipeline_output['stft_orientation_map']) + 1e-6)
-            axes[1, 0].imshow(stft_orientation_for_plot, cmap='hsv'); axes[1, 0].set_title("5. STFT Orientation Map")
-            axes[1, 1].imshow(pipeline_output['stft_frequency_map'], cmap='viridis'); axes[1, 1].set_title("6. STFT Frequency Map")
-            axes[1, 2].imshow(pipeline_output['stft_energy_map'], cmap='magma'); axes[1, 2].set_title("7. STFT Energy Map")
-            axes[1, 3].imshow(pipeline_output['stft_coherence_map'], cmap='cividis'); axes[1, 3].set_title("8. STFT Coherence Map")
+            # Row 2: Feature Maps (from STFT, used for MTCC descriptors) - CHANGED TO GRAYSCALE
+            # Note: Orientation map typically looks better with 'hsv' but changed to 'gray' as requested.
+            axes[1, 0].imshow(pipeline_output['stft_orientation_map'], cmap='gray'); axes[1, 0].set_title("5. STFT Orientation Map (Grayscale)")
+            axes[1, 1].imshow(pipeline_output['stft_frequency_map'], cmap='gray'); axes[1, 1].set_title("6. STFT Frequency Map (Grayscale)")
+            axes[1, 2].imshow(pipeline_output['stft_energy_map'], cmap='gray'); axes[1, 2].set_title("7. STFT Energy Map (Grayscale)")
+            axes[1, 3].imshow(pipeline_output['stft_coherence_map'], cmap='gray'); axes[1, 3].set_title("8. STFT Coherence Map (Grayscale)")
 
             # Row 3: Minutiae Visualization & Enhancer's Internal Maps
             minutiae_img_colored = cv2.cvtColor(pipeline_output['thinned_skeleton'].copy(), cv2.COLOR_GRAY2BGR)
@@ -1495,9 +1494,20 @@ class MTCCPipelineVisualizer:
                 
                 # Plot orientation as a line
                 length = 10 # Length of orientation line
-                # Note: math.degrees(m['orientation']) if you need to plot based on degrees
+                # Note: Orientation is in radians, angle is measured from positive x-axis counter-clockwise.
+                # In image coordinates, y-axis is inverted, so sin needs negation or adjust angle.
+                # Standard convention for orientation map in fingerprint is 0-pi, where 0 is horizontal right.
+                # For plotting, angle 0 is towards right, pi/2 is down, pi is left.
+                # Our orientation map from STFT ranges 0 to pi.
+                # For `np.cos(angle)` and `np.sin(angle)` where angle is from horizontal right,
+                # `end_x = center_x + length * np.cos(angle)`
+                # `end_y = center_y + length * np.sin(angle)`
+                # However, in image coordinates positive Y is usually downwards, while mathematical Y is upwards.
+                # To make the orientation vector point *along* the ridge flow visually:
+                # Ridge orientation is perpendicular to gradient direction. `stft_orientation_map` is ridge orientation.
+                # If 0 is horizontal, pi/2 is vertical, plot points in direction:
                 end_x = int(center_x + length * np.cos(m['orientation']))
-                end_y = int(center_y + length * np.sin(m['orientation']))
+                end_y = int(center_y + length * np.sin(m['orientation'])) # Using + for y makes it point downwards if angle is 0 to pi
                 cv2.line(minutiae_img_colored, (center_x, center_y), (end_x, end_y), (0, 255, 0), 1) # Green line for orientation
 
             axes[2, 0].imshow(cv2.cvtColor(minutiae_img_colored, cv2.COLOR_BGR2RGB)); axes[2, 0].set_title(f"9. Final Minutiae ({len(minutiae_list)} found)")
@@ -1507,9 +1517,9 @@ class MTCCPipelineVisualizer:
             axes[2, 1].imshow(enhancer_norm_for_plot, cmap='gray'); axes[2, 1].set_title("10. Gabor Enhancer's Normalized Image")
 
             enhancer_orient_for_plot = (pipeline_output['enhancer_internal_orient_map'] - np.min(pipeline_output['enhancer_internal_orient_map'])) / (np.max(pipeline_output['enhancer_internal_orient_map']) - np.min(pipeline_output['enhancer_internal_orient_map']) + 1e-6)
-            axes[2, 2].imshow(enhancer_orient_for_plot, cmap='hsv'); axes[2, 2].set_title("11. Gabor Enhancer's Orient Map")
+            axes[2, 2].imshow(enhancer_orient_for_plot, cmap='gray'); axes[2, 2].set_title("11. Gabor Enhancer's Orient Map (Grayscale)")
 
-            axes[2, 3].imshow(pipeline_output['enhancer_internal_freq_map'], cmap='viridis'); axes[2, 3].set_title("12. Gabor Enhancer's Freq Map")
+            axes[2, 3].imshow(pipeline_output['enhancer_internal_freq_map'], cmap='gray'); axes[2, 3].set_title("12. Gabor Enhancer's Freq Map (Grayscale)")
 
 
             for ax_row in axes:
@@ -1526,6 +1536,47 @@ class MTCCPipelineVisualizer:
             print(f"Error during visualization: {e}")
             import traceback
             traceback.print_exc()
+
+# -----------------------------------------------------------------------------
+# Function to match two images and print score
+# -----------------------------------------------------------------------------
+def match_two_fingerprints(image_path1: str, image_path2: str, params: MTCCParameters, feature_type: str = 'MCCco'):
+    """
+    Processes two fingerprint images and computes their MTCC matching score.
+    """
+    print(f"\n--- Matching {os.path.basename(image_path1)} and {os.path.basename(image_path2)} ---")
+    pipeline = FingerprintRecognitionPipeline(params)
+    matcher = MTCCMatcher(top_n_pairs=params.matcher_top_n_pairs)
+
+    try:
+        print(f"Processing {os.path.basename(image_path1)}...")
+        output1 = pipeline.process_image(image_path1)
+        cylinders1 = output1['mtcc_cylinders']
+        if not cylinders1:
+            print(f"Warning: No MTCC descriptors found for {os.path.basename(image_path1)}. Score will be 0.")
+            print(f"Match Score ({feature_type}): 0.0")
+            return 0.0
+
+        print(f"Processing {os.path.basename(image_path2)}...")
+        output2 = pipeline.process_image(image_path2)
+        cylinders2 = output2['mtcc_cylinders']
+        if not cylinders2:
+            print(f"Warning: No MTCC descriptors found for {os.path.basename(image_path2)}. Score will be 0.")
+            print(f"Match Score ({feature_type}): 0.0")
+            return 0.0
+
+        score = matcher.match(cylinders1, cylinders2, feature_type=feature_type)
+        print(f"Match Score ({feature_type}): {score:.4f}")
+        return score
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        return 0.0
+    except Exception as e:
+        print(f"An unexpected error occurred during matching: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0.0
+
 
 # -----------------------------------------------------------------------------
 # Main Execution Block
@@ -1554,7 +1605,36 @@ if __name__ == "__main__":
     print("--- Visualization Test Complete ---")
 
 
-    # --- 2. FVC Dataset Evaluation ---
+    # --- 2. Single Image Match Test ---
+    # IMPORTANT: Update these paths to real fingerprint images from your FVC2002 dataset.
+    # Ensure these paths are correct for your system.
+    print("\n--- Starting Single Image Match Test ---")
+    
+    # Example 1: Genuine Match (same finger, different impressions)
+    image_path_genuine_1 = 'C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/Db1_a/1_1.tif'
+    image_path_genuine_2 = 'C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/Db1_a/1_2.tif'
+
+    # Example 2: Impostor Match (different fingers)
+    image_path_impostor_1 = 'C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/Db1_a/1_1.tif'
+    image_path_impostor_2 = 'C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/Db1_a/2_1.tif'
+
+    # Check if paths exist before running tests
+    all_paths_exist = True
+    for path in [image_path_genuine_1, image_path_genuine_2, image_path_impostor_1, image_path_impostor_2]:
+        if not os.path.exists(path):
+            print(f"Error: Required image not found at '{path}'. Skipping single match test.")
+            all_paths_exist = False
+            break
+
+    if all_paths_exist:
+        # Perform Genuine match
+        match_two_fingerprints(image_path_genuine_1, image_path_genuine_2, params)
+        # Perform Impostor match
+        match_two_fingerprints(image_path_impostor_1, image_path_impostor_2, params)
+    print("--- Single Image Match Test Complete ---")
+
+
+    # --- 3. FVC Dataset Evaluation ---
     # IMPORTANT: Update this path to your actual FVC2002 Db1_a directory.
     dataset_path = 'C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/Db1_a'
 
