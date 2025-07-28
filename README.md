@@ -80,3 +80,18 @@ The implementation successfully demonstrates:
 # This was a fail too
 fail-cursor-pro-agent-sonnet-4
 
+
+
+# Pass! Partially.
+Finally Gemini2.54 Thinking model does the job. It did a fair job till STFT enhancement which was just excellent. 
+including image normalization, segmentation and then STFT were just too good. 
+But faultered at Gabor Filtering. Thinning and Minutiae extraction. Like other models. 
+So two links were used to refactor the code. And except for one minor typo, the code ran fine. Gabor filtering went good and minutia extracted
+with some scores produced. We shall tackle that too. Slowly but surely!
+
+
+Gabor Filtering for fingerprint Extraciton
+([Source](https://github.com/Utkarsh-Deshmukh/Fingerprint-Enhancement-Python)).
+
+Minutia Extraciton 
+([Source](https://github.com/Utkarsh-Deshmukh/Fingerprint-Feature-Extraction/tree/master)).
