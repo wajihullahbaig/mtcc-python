@@ -427,7 +427,7 @@ def create_mtcc_cylinders(minutiae_list, texture_maps, radius=None, NS=None, ND=
             dist_sq = (central_minutia['x'] - other_minutia['x'])**2 + \
                       (central_minutia['y'] - other_minutia['y'])**2
             if dist_sq <= radius**2:
-                neighbor_minutiae_in_in_range.append(other_minutia)
+                neighbor_minutiae_in_range.append(other_minutia)
 
         for cell in cylinder['cells']:
             cell_x, cell_y = cell['center_x'], cell['center_y']
