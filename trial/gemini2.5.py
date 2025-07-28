@@ -23,7 +23,6 @@ class MinutiaeFeature(object):
         self.locY = locY
         self.Orientation = Orientation
         self.Type = Type
-
 class _CoreMinutiaeFeatureExtractor: # Renamed to private to avoid confusion with wrapper
     """
     Core Minutiae Feature Extractor, provided by user.
@@ -105,16 +104,17 @@ class _CoreMinutiaeFeatureExtractor: # Renamed to private to avoid confusion wit
         return [float('nan')] # Default for unknown type
 
     def __getTerminationBifurcation(self):
-        # Convert skeleton to boolean for processing
-        self._skel = self._skel == 255
-        (rows, cols) = self._skel.shape
-        self.minutiaeTerm = np.zeros_like(self._skel, dtype=np.uint8)
-        self.minutiaeBif = np.zeros_like(self._skel, dtype=np.uint8)
+        # Use a local boolean version of the skeleton for processing,
+        # but keep self._skel as uint8 (0 or 255).
+        skel_for_processing = (self._skel == 255) # This creates a boolean array for internal use
+        (rows, cols) = skel_for_processing.shape
+        self.minutiaeTerm = np.zeros_like(skel_for_processing, dtype=np.uint8) # Initialize as uint8
+        self.minutiaeBif = np.zeros_like(skel_for_processing, dtype=np.uint8) # Initialize as uint8
 
         for i in range(1, rows - 1):
             for j in range(1, cols - 1):
-                if (self._skel[i][j] == 1):
-                    block = self._skel[i - 1:i + 2, j - 1:j + 2]
+                if (skel_for_processing[i][j] == 1): # Check for active skeleton pixel (True)
+                    block = skel_for_processing[i - 1:i + 2, j - 1:j + 2]
                     block_val = np.sum(block) # Sum of 1s in 3x3 window (crossing number logic)
                     if (block_val == 2): # Termination (one connection to center pixel)
                         self.minutiaeTerm[i, j] = 1
@@ -122,9 +122,15 @@ class _CoreMinutiaeFeatureExtractor: # Renamed to private to avoid confusion wit
                         self.minutiaeBif[i, j] = 1
 
         # This part applies morphological operations to the internal mask
-        self._mask = skimage.morphology.convex_hull_image(self._mask > 0)
+        # self._mask is initially img.copy() (uint8) from __skeletonize
+        # Convert to boolean for convex hull and erosion, then it will be boolean.
+        mask_bool_for_morph = self._mask > 0
+        self._mask = skimage.morphology.convex_hull_image(mask_bool_for_morph)
         self._mask = skimage.morphology.erosion(self._mask, skimage.morphology.square(5))
+        
         # Filter minutiae points that fall outside this eroded mask
+        # self.minutiaeTerm and self.minutiaeBif are np.uint8 (0 or 1)
+        # self._mask here is boolean. Convert to uint8 (0 or 1) for multiplication.
         self.minutiaeTerm = self.minutiaeTerm * np.uint8(self._mask)
         self.minutiaeBif = self.minutiaeBif * np.uint8(self._mask)
 
@@ -241,7 +247,7 @@ class _CoreMinutiaeFeatureExtractor: # Renamed to private to avoid confusion wit
             raise ValueError("Input image must be grayscale (2D numpy array).")
 
         # Convert to 0/255 if not already
-        if np.max(enhanced_binary_img) <= 1:
+        if np.max(enhanced_binary_img) <= 1 and np.min(enhanced_binary_img) >= 0: # Check for binary (0 or 1)
             img_processed = (enhanced_binary_img * 255).astype(np.uint8)
         else:
             img_processed = enhanced_binary_img.astype(np.uint8)
@@ -252,13 +258,12 @@ class _CoreMinutiaeFeatureExtractor: # Renamed to private to avoid confusion wit
         # Step 2: Get termination and bifurcation points (updates self.minutiaeTerm, self.minutiaeBif, self._mask)
         self.__getTerminationBifurcation()
 
-        # Step 3: Remove spurious minutiae (updates self.minutiaeTerm, self.minutiaeBif - are binary images now)
+        # Step 3: Remove spurious minutiae (updates self.minutiaeTerm, self.minutiaeBif - are binary images now, 0 or 1)
         self.__cleanMinutiae(img_processed.shape)
 
         # Step 4: Perform final feature extraction including angle computation
         features_term, features_bif = self.__performFeatureExtraction()
         return (features_term, features_bif)
-
 # -----------------------------------------------------------------------------
 # New Gabor Filter Implementation (Provided by User - Renamed and wrapped)
 # -----------------------------------------------------------------------------
@@ -854,7 +859,6 @@ class TextureFeatureExtractor:
 # -----------------------------------------------------------------------------
 # 2. Minutiae Extraction and Quality Assessment Classes (New Wrapper)
 # -----------------------------------------------------------------------------
-
 class MinutiaeExtractor:
     """
     Wrapper for _CoreMinutiaeFeatureExtractor.
@@ -916,14 +920,130 @@ class MinutiaeExtractor:
                     'quality': 1.0
                 })
 
+        # Ensure the output images are uint8 with 0/255 values for visualization
+        thinned_skeleton_output = self.core_extractor.skeleton_image
+        if thinned_skeleton_output.dtype == bool:
+            thinned_skeleton_output = thinned_skeleton_output.astype(np.uint8) * 255
+        elif thinned_skeleton_output.dtype == np.uint8 and np.max(thinned_skeleton_output) == 1:
+            thinned_skeleton_output = thinned_skeleton_output * 255
+
+        minutiaeTerm_img_output = self.core_extractor.termination_points_image
+        if minutiaeTerm_img_output.dtype == bool:
+            minutiaeTerm_img_output = minutiaeTerm_img_output.astype(np.uint8) * 255
+        elif minutiaeTerm_img_output.dtype == np.uint8 and np.max(minutiaeTerm_img_output) == 1:
+            minutiaeTerm_img_output = minutiaeTerm_img_output * 255
+
+        minutiaeBif_img_output = self.core_extractor.bifurcation_points_image
+        if minutiaeBif_img_output.dtype == bool:
+            minutiaeBif_img_output = minutiaeBif_img_output.astype(np.uint8) * 255
+        elif minutiaeBif_img_output.dtype == np.uint8 and np.max(minutiaeBif_img_output) == 1:
+            minutiaeBif_img_output = minutiaeBif_img_output * 255
+
+        enhancer_internal_mask_minutiae_output = self.core_extractor.internal_mask
+        if enhancer_internal_mask_minutiae_output.dtype == bool:
+            enhancer_internal_mask_minutiae_output = enhancer_internal_mask_minutiae_output.astype(np.uint8) * 255
+        elif enhancer_internal_mask_minutiae_output.dtype == np.uint8 and np.max(enhancer_internal_mask_minutiae_output) == 1:
+            enhancer_internal_mask_minutiae_output = enhancer_internal_mask_minutiae_output * 255
+
+
         return {
             'minutiae_list': minutiae_list, # The list of minutiae in MTCC expected format
-            'thinned_skeleton': self.core_extractor.skeleton_image,
-            'minutiaeTerm_img': self.core_extractor.termination_points_image * 255, # Convert bool to uint8 0/255
-            'minutiaeBif_img': self.core_extractor.bifurcation_points_image * 255,   # Convert bool to uint8 0/255
-            'enhancer_internal_mask_minutiae': self.core_extractor.internal_mask * 255 # Mask generated internally by new minutiae extractor
+            'thinned_skeleton': thinned_skeleton_output,
+            'minutiaeTerm_img': minutiaeTerm_img_output,
+            'minutiaeBif_img': minutiaeBif_img_output,
+            'enhancer_internal_mask_minutiae': enhancer_internal_mask_minutiae_output
         }
+    
+class MTCCPipelineVisualizer:
+    """
+    Provides comprehensive visualization of the MTCC pipeline's intermediate steps.
+    Updated to reflect the outputs of the new Gabor enhancement and minutiae extraction.
+    """
+    def visualize(self, pipeline_output: dict, save_debug: bool = True):
+        print("Visualizing MTCC pipeline...")
+        try:
+            original_img = pipeline_output.get('original_image')
+            if original_img is None:
+                print("Error: Original image not found in pipeline output. Skipping visualization.")
+                return
 
+            fig, axes = plt.subplots(3, 4, figsize=(18, 12))
+            fig.suptitle("MTCC Fingerprint Recognition Pipeline Visualization", fontsize=16)
+
+            # Row 1: Processing Stages
+            axes[0, 0].imshow(original_img, cmap='gray'); axes[0, 0].set_title("1. Original Image")
+            axes[0, 1].imshow(pipeline_output['initial_mask'], cmap='gray'); axes[0, 1].set_title("2. Initial Mask (Preprocessor)")
+            axes[0, 2].imshow(pipeline_output['gabor_enhanced_binary_img'], cmap='gray'); axes[0, 2].set_title("3. Gabor Enhanced Binary")
+            axes[0, 3].imshow(pipeline_output['thinned_skeleton'], cmap='gray'); axes[0, 3].set_title("4. Thinned Skeleton (Minutiae Extractor)")
+
+            # Row 2: Feature Maps (from STFT, used for MTCC descriptors) - CHANGED TO GRAYSCALE
+            # Note: Orientation map typically looks better with 'hsv' but changed to 'gray' as requested.
+            # Normalizing for display in grayscale
+            stft_orientation_for_plot = (pipeline_output['stft_orientation_map'] - np.min(pipeline_output['stft_orientation_map'])) / (np.max(pipeline_output['stft_orientation_map']) - np.min(pipeline_output['stft_orientation_map']) + 1e-6)
+            axes[1, 0].imshow(stft_orientation_for_plot, cmap='gray'); axes[1, 0].set_title("5. STFT Orientation Map (Grayscale)")
+            
+            stft_frequency_for_plot = (pipeline_output['stft_frequency_map'] - np.min(pipeline_output['stft_frequency_map'])) / (np.max(pipeline_output['stft_frequency_map']) - np.min(pipeline_output['stft_frequency_map']) + 1e-6)
+            axes[1, 1].imshow(stft_frequency_for_plot, cmap='gray'); axes[1, 1].set_title("6. STFT Frequency Map (Grayscale)")
+            
+            stft_energy_for_plot = (pipeline_output['stft_energy_map'] - np.min(pipeline_output['stft_energy_map'])) / (np.max(pipeline_output['stft_energy_map']) - np.min(pipeline_output['stft_energy_map']) + 1e-6)
+            axes[1, 2].imshow(stft_energy_for_plot, cmap='gray'); axes[1, 2].set_title("7. STFT Energy Map (Grayscale)")
+            
+            stft_coherence_for_plot = (pipeline_output['stft_coherence_map'] - np.min(pipeline_output['stft_coherence_map'])) / (np.max(pipeline_output['stft_coherence_map']) - np.min(pipeline_output['stft_coherence_map']) + 1e-6)
+            axes[1, 3].imshow(stft_coherence_for_plot, cmap='gray'); axes[1, 3].set_title("8. STFT Coherence Map (Grayscale)")
+
+            # Row 3: Minutiae Visualization & Enhancer's Internal Maps
+            # Ensure thinned_skeleton is uint8 and 0-255 for cvtColor
+            thinned_skeleton_for_color = pipeline_output['thinned_skeleton']
+            # The MinutiaeExtractor.process now ensures `thinned_skeleton` is uint8 0/255.
+            # No additional cast needed here for cvtColor.
+            minutiae_img_colored = cv2.cvtColor(thinned_skeleton_for_color.copy(), cv2.COLOR_GRAY2BGR)
+
+            minutiae_list = pipeline_output['minutiae_list']
+            for m in minutiae_list:
+                # Plot minutiae points
+                center_x, center_y = m['x'], m['y']
+                color = (0, 0, 255) if m['type'] == 'ending' else (255, 0, 0) # Red for ending, Blue for bifurcation
+                cv2.circle(minutiae_img_colored, (center_x, center_y), 3, color, -1)
+                
+                # Plot orientation as a line
+                length = 10 # Length of orientation line
+                # Note: Orientation is in radians, angle is measured from positive x-axis counter-clockwise.
+                # In image coordinates, positive Y is downwards. If m['orientation'] is relative to horizontal right
+                # and positive for counter-clockwise, then to plot in image coordinates:
+                # end_x = center_x + length * cos(angle)
+                # end_y = center_y + length * sin(angle)
+                # This plots the vector as if the origin is top-left and y-axis points down.
+                end_x = int(center_x + length * np.cos(m['orientation']))
+                end_y = int(center_y + length * np.sin(m['orientation'])) 
+                cv2.line(minutiae_img_colored, (center_x, center_y), (end_x, end_y), (0, 255, 0), 1) # Green line for orientation
+
+            axes[2, 0].imshow(cv2.cvtColor(minutiae_img_colored, cv2.COLOR_BGR2RGB)); axes[2, 0].set_title(f"9. Final Minutiae ({len(minutiae_list)} found)")
+
+            # Internal maps from the Gabor Enhancer
+            enhancer_norm_for_plot = pipeline_output['enhancer_internal_norm_img']
+            axes[2, 1].imshow(enhancer_norm_for_plot, cmap='gray'); axes[2, 1].set_title("10. Gabor Enhancer's Normalized Image")
+
+            enhancer_orient_for_plot = (pipeline_output['enhancer_internal_orient_map'] - np.min(pipeline_output['enhancer_internal_orient_map'])) / (np.max(pipeline_output['enhancer_internal_orient_map']) - np.min(pipeline_output['enhancer_internal_orient_map']) + 1e-6)
+            axes[2, 2].imshow(enhancer_orient_for_plot, cmap='gray'); axes[2, 2].set_title("11. Gabor Enhancer's Orient Map (Grayscale)")
+
+            enhancer_freq_for_plot = (pipeline_output['enhancer_internal_freq_map'] - np.min(pipeline_output['enhancer_internal_freq_map'])) / (np.max(pipeline_output['enhancer_internal_freq_map']) - np.min(pipeline_output['enhancer_internal_freq_map']) + 1e-6)
+            axes[2, 3].imshow(enhancer_freq_for_plot, cmap='gray'); axes[2, 3].set_title("12. Gabor Enhancer's Freq Map (Grayscale)")
+
+
+            for ax_row in axes:
+                for ax in ax_row:
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            if save_debug:
+                plt.savefig("mtcc_pipeline_visualization_refactored_new_minutiae.png")
+            plt.show()
+
+        except Exception as e:
+            print(f"Error during visualization: {e}")
+            import traceback
+            traceback.print_exc()
 # -----------------------------------------------------------------------------
 # 3. MTCC Descriptor Generation Class (Unchanged, uses texture_maps)
 # -----------------------------------------------------------------------------
@@ -972,8 +1092,16 @@ class MTCCDescriptorGenerator:
         return cylinder
 
     def _calculate_spatial_contribution(self, minutia: dict, neighbor_minutia: dict) -> float:
-        dist = np.sqrt((minutia['x'] - neighbor_minutia['x'])**2 + \
-                       (minutia['y'] - neighbor_minutia['y'])**2)
+        # Cast coordinates to float64 to prevent overflow during squaring
+        mx = float(minutia['x'])
+        my = float(minutia['y'])
+        nx = float(neighbor_minutia['x'])
+        ny = float(neighbor_minutia['y'])
+
+        # Use np.maximum to ensure the value inside sqrt is non-negative
+        dist_sq = np.maximum(0.0, (mx - nx)**2 + (my - ny)**2)
+        dist = np.sqrt(dist_sq)
+        
         return np.exp(-0.5 * (dist / self.sigma_s)**2)
 
     def _calculate_texture_contribution(self, value1: float, value2: float, sigma_d: float) -> float:
@@ -993,13 +1121,19 @@ class MTCCDescriptorGenerator:
             cylinder = self._create_3d_cylinder(central_minutia)
 
             neighbor_minutiae_in_range = []
-            for other_minutiae in minutiae_list:
-                if other_minutiae == central_minutia:
+            for other_minutia in minutiae_list:
+                if other_minutia == central_minutia:
                     continue
-                dist_sq = (central_minutia['x'] - other_minutiae['x'])**2 + \
-                          (central_minutia['y'] - other_minutiae['y'])**2
+                # Cast coordinates to float64 for distance calculation to prevent overflow
+                cx_float = float(central_minutia['x'])
+                cy_float = float(central_minutia['y'])
+                ox_float = float(other_minutia['x'])
+                oy_float = float(other_minutia['y'])
+
+                dist_sq = (cx_float - ox_float)**2 + (cy_float - oy_float)**2
+                
                 if dist_sq <= self.radius**2:
-                    neighbor_minutiae_in_range.append(other_minutiae)
+                    neighbor_minutiae_in_range.append(other_minutia)
 
             cm_x, cm_y = central_minutia['x'], central_minutia['y']
             if not (0 <= cm_y < img_h and 0 <= cm_x < img_w):
@@ -1477,10 +1611,18 @@ class MTCCPipelineVisualizer:
 
             # Row 2: Feature Maps (from STFT, used for MTCC descriptors) - CHANGED TO GRAYSCALE
             # Note: Orientation map typically looks better with 'hsv' but changed to 'gray' as requested.
-            axes[1, 0].imshow(pipeline_output['stft_orientation_map'], cmap='gray'); axes[1, 0].set_title("5. STFT Orientation Map (Grayscale)")
-            axes[1, 1].imshow(pipeline_output['stft_frequency_map'], cmap='gray'); axes[1, 1].set_title("6. STFT Frequency Map (Grayscale)")
-            axes[1, 2].imshow(pipeline_output['stft_energy_map'], cmap='gray'); axes[1, 2].set_title("7. STFT Energy Map (Grayscale)")
-            axes[1, 3].imshow(pipeline_output['stft_coherence_map'], cmap='gray'); axes[1, 3].set_title("8. STFT Coherence Map (Grayscale)")
+            # Normalizing for display in grayscale
+            stft_orientation_for_plot = (pipeline_output['stft_orientation_map'] - np.min(pipeline_output['stft_orientation_map'])) / (np.max(pipeline_output['stft_orientation_map']) - np.min(pipeline_output['stft_orientation_map']) + 1e-6)
+            axes[1, 0].imshow(stft_orientation_for_plot, cmap='gray'); axes[1, 0].set_title("5. STFT Orientation Map (Grayscale)")
+            
+            stft_frequency_for_plot = (pipeline_output['stft_frequency_map'] - np.min(pipeline_output['stft_frequency_map'])) / (np.max(pipeline_output['stft_frequency_map']) - np.min(pipeline_output['stft_frequency_map']) + 1e-6)
+            axes[1, 1].imshow(stft_frequency_for_plot, cmap='gray'); axes[1, 1].set_title("6. STFT Frequency Map (Grayscale)")
+            
+            stft_energy_for_plot = (pipeline_output['stft_energy_map'] - np.min(pipeline_output['stft_energy_map'])) / (np.max(pipeline_output['stft_energy_map']) - np.min(pipeline_output['stft_energy_map']) + 1e-6)
+            axes[1, 2].imshow(stft_energy_for_plot, cmap='gray'); axes[1, 2].set_title("7. STFT Energy Map (Grayscale)")
+            
+            stft_coherence_for_plot = (pipeline_output['stft_coherence_map'] - np.min(pipeline_output['stft_coherence_map'])) / (np.max(pipeline_output['stft_coherence_map']) - np.min(pipeline_output['stft_coherence_map']) + 1e-6)
+            axes[1, 3].imshow(stft_coherence_for_plot, cmap='gray'); axes[1, 3].set_title("8. STFT Coherence Map (Grayscale)")
 
             # Row 3: Minutiae Visualization & Enhancer's Internal Maps
             minutiae_img_colored = cv2.cvtColor(pipeline_output['thinned_skeleton'].copy(), cv2.COLOR_GRAY2BGR)
@@ -1495,19 +1637,13 @@ class MTCCPipelineVisualizer:
                 # Plot orientation as a line
                 length = 10 # Length of orientation line
                 # Note: Orientation is in radians, angle is measured from positive x-axis counter-clockwise.
-                # In image coordinates, y-axis is inverted, so sin needs negation or adjust angle.
-                # Standard convention for orientation map in fingerprint is 0-pi, where 0 is horizontal right.
-                # For plotting, angle 0 is towards right, pi/2 is down, pi is left.
-                # Our orientation map from STFT ranges 0 to pi.
-                # For `np.cos(angle)` and `np.sin(angle)` where angle is from horizontal right,
-                # `end_x = center_x + length * np.cos(angle)`
-                # `end_y = center_y + length * np.sin(angle)`
-                # However, in image coordinates positive Y is usually downwards, while mathematical Y is upwards.
-                # To make the orientation vector point *along* the ridge flow visually:
-                # Ridge orientation is perpendicular to gradient direction. `stft_orientation_map` is ridge orientation.
-                # If 0 is horizontal, pi/2 is vertical, plot points in direction:
+                # In image coordinates, positive Y is downwards. If m['orientation'] is relative to horizontal right
+                # and positive for counter-clockwise, then to plot in image coordinates:
+                # end_x = center_x + length * cos(angle)
+                # end_y = center_y + length * sin(angle)
+                # This plots the vector as if the origin is top-left and y-axis points down.
                 end_x = int(center_x + length * np.cos(m['orientation']))
-                end_y = int(center_y + length * np.sin(m['orientation'])) # Using + for y makes it point downwards if angle is 0 to pi
+                end_y = int(center_y + length * np.sin(m['orientation'])) 
                 cv2.line(minutiae_img_colored, (center_x, center_y), (end_x, end_y), (0, 255, 0), 1) # Green line for orientation
 
             axes[2, 0].imshow(cv2.cvtColor(minutiae_img_colored, cv2.COLOR_BGR2RGB)); axes[2, 0].set_title(f"9. Final Minutiae ({len(minutiae_list)} found)")
@@ -1519,7 +1655,8 @@ class MTCCPipelineVisualizer:
             enhancer_orient_for_plot = (pipeline_output['enhancer_internal_orient_map'] - np.min(pipeline_output['enhancer_internal_orient_map'])) / (np.max(pipeline_output['enhancer_internal_orient_map']) - np.min(pipeline_output['enhancer_internal_orient_map']) + 1e-6)
             axes[2, 2].imshow(enhancer_orient_for_plot, cmap='gray'); axes[2, 2].set_title("11. Gabor Enhancer's Orient Map (Grayscale)")
 
-            axes[2, 3].imshow(pipeline_output['enhancer_internal_freq_map'], cmap='gray'); axes[2, 3].set_title("12. Gabor Enhancer's Freq Map (Grayscale)")
+            enhancer_freq_for_plot = (pipeline_output['enhancer_internal_freq_map'] - np.min(pipeline_output['enhancer_internal_freq_map'])) / (np.max(pipeline_output['enhancer_internal_freq_map']) - np.min(pipeline_output['enhancer_internal_freq_map']) + 1e-6)
+            axes[2, 3].imshow(enhancer_freq_for_plot, cmap='gray'); axes[2, 3].set_title("12. Gabor Enhancer's Freq Map (Grayscale)")
 
 
             for ax_row in axes:
