@@ -53,3 +53,6 @@ Minutia Extraciton
 
 Visualization
 ![image](pass-july-2025/mtcc_pipeline_visualization_refactored_new_minutiae.png)
+
+
+# Updates expected!
