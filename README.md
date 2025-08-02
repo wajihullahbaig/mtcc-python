@@ -52,4 +52,4 @@ Minutia Extraciton
 ([Source](https://github.com/Utkarsh-Deshmukh/Fingerprint-Feature-Extraction/tree/master)).
 
 Visualization
-![image](mtcc_pipeline_visualization_refactored_new_minutiae.png)
+![image](pass-july-2025/mtcc_pipeline_visualization_refactored_new_minutiae.png)
