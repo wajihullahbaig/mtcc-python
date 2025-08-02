@@ -1274,7 +1274,7 @@ class MTCCMatcher:
     def _compute_global_score(self, relaxed_scores: list[float]) -> float:
         if not relaxed_scores:
             return 0.0
-        return np.mean(relaxed_scores)
+        return np.mean(relaxed_scores)/(np.max(relaxed_scores)+1.0)  # Normalize to [0, 1] range
 
     def match(self, cylinders1: list[dict], cylinders2: list[dict], feature_type: str = 'MCCco') -> float:
         if not cylinders1 or not cylinders2 or any(c is None for c in cylinders1) or any(c is None for c in cylinders2):
@@ -1648,16 +1648,19 @@ class MTCCPipelineVisualizer:
                 cv2.circle(minutiae_img_colored, (center_x, center_y), 3, color, -1)
                 
                 # Plot orientation as a line
-                length = 10 # Length of orientation line
-                # Note: Orientation is in radians, angle is measured from positive x-axis counter-clockwise.
-                # In image coordinates, positive Y is downwards. If m['orientation'] is relative to horizontal right
-                # and positive for counter-clockwise, then to plot in image coordinates:
-                # end_x = center_x + length * cos(angle)
-                # end_y = center_y + length * sin(angle)
-                # This plots the vector as if the origin is top-left and y-axis points down.
-                end_x = int(center_x + length * np.cos(m['orientation']))
-                end_y = int(center_y + length * np.sin(m['orientation'])) 
-                cv2.line(minutiae_img_colored, (center_x, center_y), (end_x, end_y), (0, 255, 0), 1) # Green line for orientation
+                length = 15
+                # MinutiaeExtractor already gives the angle in radians
+                # with 0 = East, positive = CCW.
+                # In image coordinates (x→, y↓) this is exactly the normal
+                # polar → cartesian mapping.
+                dx =  length * np.cos(m['orientation'])
+                dy =  length * np.sin(m['orientation'])
+                cv2.arrowedLine(
+                    minutiae_img_colored,
+                    (center_x, center_y),
+                    (int(center_x + dx), int(center_y + dy)),
+                    (0, 255, 0), 1, tipLength=0.3
+                )
 
             axes[2, 0].imshow(cv2.cvtColor(minutiae_img_colored, cv2.COLOR_BGR2RGB)); axes[2, 0].set_title(f"9. Final Minutiae ({len(minutiae_list)} found)")
 
