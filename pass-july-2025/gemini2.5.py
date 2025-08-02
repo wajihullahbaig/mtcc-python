@@ -755,8 +755,7 @@ class STFTFeatureExtractor:
         orient_sin_accumulator = np.zeros_like(image, dtype=np.float32)
         freq_accumulator = np.zeros_like(image, dtype=np.float32)
         energy_accumulator = np.zeros_like(image, dtype=np.float32)
-        feature_weights = np.zeros_like(image, dtype=np.float32)
-
+        feature_weights = np.zeros_like(image, dtype=np.float32) # Tracks how many blocks contribute to each pixel
 
         for y in range(0, h - self.window_size + 1, self.step_size):
             for x in range(0, w - self.window_size + 1, self.step_size):
@@ -777,31 +776,45 @@ class STFTFeatureExtractor:
                 block_energy = np.log(np.sum(magnitude_spectrum**2) + 1e-10)
 
                 if np.max(magnitude_spectrum) > 0:
-                    dom_freq_idx = np.unravel_index(np.argmax(magnitude_spectrum), magnitude_spectrum.shape)
+                    # Find dominant frequency components
+                    # Avoid 0,0 index which corresponds to DC component
+                    mag_spectrum_no_dc = magnitude_spectrum.copy()
+                    mag_spectrum_no_dc[self.window_size // 2, self.window_size // 2] = 0 
+
+                    dom_freq_idx = np.unravel_index(np.argmax(mag_spectrum_no_dc), mag_spectrum_no_dc.shape)
                     center_y, center_x = self.window_size // 2, self.window_size // 2
                     k_y = dom_freq_idx[0] - center_y
                     k_x = dom_freq_idx[1] - center_x
 
+                    # Use arctan2 for angle calculation
                     orientation_2theta = np.arctan2(k_y, k_x)
                     
                     orient_cos_accumulator[y:y+self.window_size, x:x+self.window_size] += np.cos(orientation_2theta)
                     orient_sin_accumulator[y:y+self.window_size, x:x+self.window_size] += np.sin(orientation_2theta)
 
+                    # Frequency is magnitude of the spatial frequency vector
                     frequency = np.sqrt(k_x**2 + k_y**2) / self.window_size
                     freq_accumulator[y:y+self.window_size, x:x+self.window_size] += frequency
                     energy_accumulator[y:y+self.window_size, x:x+self.window_size] += block_energy
                     feature_weights[y:y+self.window_size, x:x+self.window_size] += 1
 
-        feature_weights[feature_weights == 0] = 1
+        feature_weights[feature_weights == 0] = 1 # Avoid division by zero
+
+        # Compute averaged maps
         orientation_map = (np.arctan2(orient_sin_accumulator, orient_cos_accumulator) / 2.0 + np.pi/2) % np.pi
         frequency_map = freq_accumulator / feature_weights
         energy_map = energy_accumulator / feature_weights
+        
+        # Calculate coherence map based on averaged orientation vectors
+        complex_orientation_vectors = orient_cos_accumulator + 1j * orient_sin_accumulator
+        coherence_map = np.abs(complex_orientation_vectors) / feature_weights
+        coherence_map = np.clip(coherence_map, 0.0, 1.0) # Ensure it's between 0 and 1
 
+        # Apply Gaussian blur for smoothing all maps
         orientation_map = cv2.GaussianBlur(orientation_map, (5,5), 0)
         frequency_map = cv2.GaussianBlur(frequency_map, (5,5), 0)
         energy_map = cv2.GaussianBlur(energy_map, (5,5), 0)
-
-        coherence_map = np.ones_like(image, dtype=np.float32) * 0.8 
+        coherence_map = cv2.GaussianBlur(coherence_map, (5,5), 0) # Apply blur to coherence map too
 
         return orientation_map, frequency_map, energy_map, coherence_map
 
