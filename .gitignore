@@ -51,7 +51,6 @@ uv.lock
 # Test data
 *.bmp
 *.tif
-*.png
 *.jpg
 test_images/
 fvc_data/ 
