@@ -1,0 +1,71 @@
+{
+  "folder": "C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/FVC2002/Db2_a",
+  "params": {
+    "seg_block": 16,
+    "seg_thresh": 0.2,
+    "smqt_levels": 8,
+    "stft_block": 14,
+    "stft_overlap": 6,
+    "stft_nfft": 32,
+    "min_period": 3.0,
+    "max_period": 25.0,
+    "gabor_orients": 24,
+    "gabor_k": 0.65,
+    "trace_len": 10,
+    "min_minutia_dist": 6.0,
+    "border_dist": 12.0,
+    "R": 65.0,
+    "NS": 18,
+    "ND": 5,
+    "sigma_s": 6.0,
+    "sigma_d": 0.4363323129985824,
+    "mu_psi": 0.005,
+    "tau_psi": 400.0,
+    "min_vc": 0.2,
+    "min_m": 1,
+    "min_me": 0.2,
+    "delta_theta": 2.0943951023931953,
+    "mu_p": 30.0,
+    "tau_p": 0.4,
+    "min_np": 4,
+    "max_np": 10,
+    "w_r": 0.6,
+    "mu_rho": [
+      12.0,
+      0.2617993877991494,
+      0.1121997376282069
+    ],
+    "tau_rho": [
+      -0.8,
+      -30.0,
+      -10.0
+    ],
+    "n_rel": 4
+  },
+  "results": {
+    "o": {
+      "eer": 3.251262626262626,
+      "fmr1000": 6.071428571428571
+    },
+    "f": {
+      "eer": 3.2132034632034623,
+      "fmr1000": 6.892857142857142
+    },
+    "e": {
+      "eer": 2.7867965367965346,
+      "fmr1000": 6.071428571428571
+    },
+    "co": {
+      "eer": 2.000000000000001,
+      "fmr1000": 3.1428571428571432
+    },
+    "cf": {
+      "eer": 2.9949494949494935,
+      "fmr1000": 6.25
+    },
+    "ce": {
+      "eer": 2.606601731601729,
+      "fmr1000": 5.571428571428571
+    }
+  }
+}
