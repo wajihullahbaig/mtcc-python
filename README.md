@@ -125,9 +125,69 @@ All parameters live in `mtcc/config.py`. The cylinder and matching values are th
 ## Results
 
 FVC protocol on every `_A` database: 2800 genuine and 4950 impostor comparisons each, default `Params`,
-no per-database tuning. The raw numbers are in [`results/crossing_number/`](results/crossing_number/). Best variant per database in bold.
+no per-database tuning. FingerJet runs use the scan resolution of each database (`--dpi 569` for FVC2002 DB2,
+`--dpi 512` for FVC2004 DB3, 500 otherwise). The raw numbers are in
+[`results/crossing_number/`](results/crossing_number/) and [`results/fingerjet_fx_ose/`](results/fingerjet_fx_ose/).
+Best variant per database in bold.
 
-### EER (%)
+### Minutiae extractor comparison (EER %, MCC_co)
+
+![EER comparison](docs/eer_comparison.png)
+
+| Database | crossing_number | fingerjet_fx_ose | Paper |
+|----------|----------------:|-----------------:|------:|
+| FVC2000 DB2 | 1.93 | **1.03** | – |
+| FVC2000 DB3 | 8.57 | **5.54** | – |
+| FVC2000 DB4 | 4.08 | **3.64** | – |
+| FVC2002 DB1 | 1.43 | **0.61** | 0.42 |
+| FVC2002 DB2 | 2.00 | **0.36** | 0.38 |
+| FVC2002 DB3 | 9.96 | **6.25** | 4.42 |
+| FVC2002 DB4 | 3.43 | **3.21** | 1.61 |
+| FVC2004 DB1 | 8.50 | **4.00** | 3.85 |
+| FVC2004 DB2 | 9.68 | **8.10** | 5.35 |
+| FVC2004 DB3 | 10.04 | **3.92** | 3.78 |
+| FVC2004 DB4 | 5.29 | **3.43** | 2.38 |
+
+Reproduce with `python -m mtcc compare results/crossing_number results/fingerjet_fx_ose --variant co --plot docs/eer_comparison.png`.
+The paper column is MCC_co from Baig et al. (2018), which used FingerJet FX OSE minutiae; it has no FVC2000 results.
+
+### `fingerjet_fx_ose` extractor
+
+#### EER (%)
+
+| Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
+|----------|------:|------:|------:|------:|------:|------:|
+| FVC2000 DB2 | 1.07 | 2.82 | 2.68 | **1.03** | 2.57 | 2.26 |
+| FVC2000 DB3 | **5.10** | 8.00 | 8.54 | 5.54 | 7.96 | 8.39 |
+| FVC2000 DB4 | **3.50** | 5.93 | 5.39 | 3.64 | 5.68 | 5.07 |
+| FVC2002 DB1 | **0.54** | 1.01 | 1.36 | 0.61 | 1.03 | 1.29 |
+| FVC2002 DB2 | **0.32** | 1.15 | 0.99 | 0.36 | 1.11 | 0.99 |
+| FVC2002 DB3 | **5.51** | 10.22 | 9.29 | 6.25 | 9.57 | 8.85 |
+| FVC2002 DB4 | **2.97** | 4.82 | 3.64 | 3.21 | 4.79 | 3.60 |
+| FVC2004 DB1 | 4.04 | 9.61 | 9.97 | **4.00** | 9.64 | 9.43 |
+| FVC2004 DB2 | **7.64** | 14.32 | 14.10 | 8.10 | 14.71 | 13.96 |
+| FVC2004 DB3 | 4.00 | 6.10 | 7.75 | **3.92** | 5.75 | 7.39 |
+| FVC2004 DB4 | **3.43** | 6.00 | 5.46 | **3.43** | 6.32 | 5.39 |
+
+#### FMR1000 (% FNMR at FMR ≤ 0.1%)
+
+| Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
+|----------|------:|------:|------:|------:|------:|------:|
+| FVC2000 DB2 | **1.86** | 5.93 | 5.43 | 1.96 | 4.89 | 4.86 |
+| FVC2000 DB3 | 9.00 | 11.36 | 12.21 | **7.89** | 11.54 | 11.64 |
+| FVC2000 DB4 | **8.50** | 14.75 | 10.86 | 8.57 | 13.79 | 9.46 |
+| FVC2002 DB1 | **0.71** | 1.89 | 2.57 | 0.93 | 1.93 | 2.14 |
+| FVC2002 DB2 | 0.50 | 2.14 | 1.96 | **0.46** | 1.89 | 1.68 |
+| FVC2002 DB3 | **13.79** | 19.46 | 20.50 | 15.00 | 20.64 | 19.04 |
+| FVC2002 DB4 | 7.18 | 10.39 | 8.50 | **6.68** | 9.00 | 7.61 |
+| FVC2004 DB1 | 13.29 | 24.79 | 28.61 | **12.68** | 24.61 | 25.21 |
+| FVC2004 DB2 | **15.61** | 30.75 | 30.46 | 15.86 | 29.86 | 31.14 |
+| FVC2004 DB3 | 8.32 | 11.54 | 12.64 | **8.11** | 11.04 | 11.89 |
+| FVC2004 DB4 | 9.86 | 13.43 | 12.57 | **9.57** | 13.25 | 12.54 |
+
+### `crossing_number` extractor
+
+#### EER (%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
 |----------|------:|------:|------:|-------:|-------:|-------:|
@@ -143,7 +203,7 @@ no per-database tuning. The raw numbers are in [`results/crossing_number/`](resu
 | FVC2004 DB3 | 14.89 | 14.46 | 18.08 | **10.04** | 13.72 | 17.51 |
 | FVC2004 DB4 | 10.71 | 9.21 | 7.78 | **5.29** | 8.64 | 7.57 |
 
-### FMR1000 (% FNMR at FMR ≤ 0.1%)
+#### FMR1000 (% FNMR at FMR ≤ 0.1%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
 |----------|------:|------:|------:|-------:|-------:|-------:|
@@ -159,34 +219,25 @@ no per-database tuning. The raw numbers are in [`results/crossing_number/`](resu
 | FVC2004 DB3 | 39.82 | 27.79 | 30.71 | **24.14** | 26.39 | 28.96 |
 | FVC2004 DB4 | 30.29 | 23.43 | 20.14 | **16.04** | 26.29 | 17.68 |
 
-### Comparison with the paper (EER %, MCC_co)
-
-| Database | This implementation | Paper |
-|----------|--------------------:|------:|
-| FVC2002 DB1 | 1.43 | 0.42 |
-| FVC2002 DB2 | 2.00 | 0.38 |
-| FVC2002 DB3 | 9.96 | 4.42 |
-| FVC2002 DB4 | 3.43 | 1.61 |
-| FVC2004 DB1 | 8.50 | 3.85 |
-| FVC2004 DB2 | 9.68 | 5.35 |
-| FVC2004 DB3 | 10.04 | 3.78 |
-| FVC2004 DB4 | 5.29 | 2.38 |
-
 **What the results show**
 
-- **The main finding holds.** Texture-based cylinders beat plain minutia-angle MCC (MCC_o).
-  MCC_co is the best variant on all 11 databases, and it roughly halves the EER of MCC_o on the
-  harder sets.
-- **Absolute errors are 2–5× higher than the paper.** The gap is widest on the low-quality
-  databases (FVC2002 DB3, FVC2004). The most likely cause is the minutiae extractor: the paper uses
-  FingerJet FX OSE, while this code uses a simple pure-Python crossing-number extractor.
-  The other variants don't follow the paper's ranking closely, which may be partly explained by
-  the I_f / I_e normalisation choice above.
+- **FingerJet minutiae lower the error on every database and every variant.** MCC_co EER drops by 1.1–5.6× and
+  MCC_o by 2–10×; for example, FVC2002 DB2 falls from 2.00% to 0.36% and FVC2004 DB3 from 10.04% to 3.92% (MCC_co).
+- **With FingerJet, the results are close to the paper.** FVC2002 DB2 (0.36 vs 0.38), FVC2004 DB1 (4.00 vs 3.85)
+  and FVC2004 DB3 (3.92 vs 3.78) are within 0.15 points. FVC2002 DB1 and DB3, and FVC2004 DB2 and DB4 are 1.4–1.5×
+  higher, and FVC2002 DB4 is 2× higher.
+- **The texture advantage depends on the extractor.** With `crossing_number`, MCC_co is the best variant on all
+  11 databases and roughly halves the EER of MCC_o. With `fingerjet_fx_ose`, MCC_o and MCC_co are within 0.75 points
+  everywhere: MCC_o is better on 7 databases, MCC_co on 3, and they tie on FVC2004 DB4. The frequency and energy
+  variants (f, e, cf, ce) are 1.2–3.6× worse than MCC_o. Texture seems to compensate for noisy
+  minutia directions, but adds little once the directions are accurate. The I_f / I_e normalisation choice above
+  may also play a part.
 - **FVC2000 DB1 is not reported.** The local copy of that database is incomplete (125 of 800
   files, some of them empty).
 
-Runtime: about 0.5 s per image for feature extraction and 3–6 ms per match on a 12-core desktop.
-One database takes 4–15 minutes for all six variants.
+Runtime on a 12-core desktop: about 0.5 s per image for feature extraction, plus about 0.3 s for
+`fingerjet_fx_ose` minutiae, and 3–6 ms per match. With FingerJet, one database takes 3–10 minutes for all six
+variants, and all 11 took 69 minutes.
 
 ## History
 
