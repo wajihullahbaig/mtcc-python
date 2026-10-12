@@ -27,7 +27,10 @@ python -m mtcc extract 1_1.tif -o 1_1.npz --variant co --plot pipeline.png --plo
 python -m mtcc match 1_1.npz 1_2.tif --variant co
 
 # FVC protocol (2800 genuine / 4950 impostor) on one database, all variants
-python -m mtcc evaluate FVC2002/Db1_a --jobs 8 --out results/FVC2002_db1_a.json
+python -m mtcc evaluate FVC2002/Db1_a --jobs 8 --out results/crossing_number/FVC2002_db1_a.json
+
+# Same, with the FingerJet FX OSE minutiae extractor (pass the scan resolution, e.g. 569 for FVC2002 DB2)
+python -m mtcc evaluate FVC2002/Db2_a --extractor fingerjet_fx_ose --dpi 569 --jobs 8
 ```
 
 From Python:
@@ -35,7 +38,7 @@ From Python:
 ```python
 from mtcc import Params, read_image, templates, match
 
-p = Params()
+p = Params()                       # or Params(extractor='fingerjet_fx_ose', dpi=500)
 a = templates(read_image('1_1.tif'), ['co'], p)['co']
 b = templates(read_image('1_2.tif'), ['co'], p)['co']
 print(match(a, b, p))
@@ -53,10 +56,51 @@ All stages on FVC2002 DB1_A `1_1.tif`:
 | SMQT | `enhance.smqt` | Successive Mean Quantization Transform, 8 levels, applied before STFT |
 | STFT analysis + enhancement | `enhance.stft` | 14 px blocks, 6 px overlap; spectral moments give I_o, I_f, I_e and coherence; contextual angular × radial filtering (Chikkerur et al.) |
 | Gabor | `enhance.gabor` | Orientation-adaptive even Gabor at the median ridge frequency; its sign gives the ridge map |
-| Minutiae | `minutiae.py` | Thinning, crossing number, ridge tracing for direction, border/cluster/spur removal |
+| Minutiae | `extractors.py` | Pluggable: `crossing_number` (`minutiae.py`) or `fingerjet_fx_ose` (`fingerjet/`), see below |
 | Cylinders | `cylinder.py` | Eqs. 1–14, variants `o f e co cf ce` |
 | Matching | `match.py` | Euclidean (Eq. 15) for `o`, double-angle (Eqs. 16–18) for texture; LSSR global score |
 | Evaluation | `evaluate.py` | FVC protocol, EER, FMR1000 |
+
+### Minutiae extractors
+
+`Params.extractor` (CLI `--extractor`) selects the minutiae extractor. Enhancement, texture maps,
+cylinders and matching are the same for both. Both return the same `(N, 5)` array: x, y (pixels), θ (radians,
+image axes), type (1 ending, 3 bifurcation, 0 other) and quality. A new extractor is a function with the
+`MinutiaeExtractor` signature added to `extractors.EXTRACTORS`.
+
+| Name | Code | Method |
+|------|------|--------|
+| `crossing_number` (default) | `minutiae.py` | Thinning of the Gabor ridge map, crossing number, ridge tracing for direction, border/cluster/spur removal |
+| `fingerjet_fx_ose` | `fingerjet/` | Pure-Python port of [FingerJet FX OSE](https://github.com/wajihullahbaig/FingerJetFXOSE_VS), the extractor used in the paper |
+
+The FingerJet port follows the C++ library in
+[wajihullahbaig/FingerJetFXOSE_VS](https://github.com/wajihullahbaig/FingerJetFXOSE_VS) (a Visual Studio
+build of [FingerJetFXOSE/FingerJetFXOSE](https://github.com/FingerJetFXOSE/FingerJetFXOSE)), one module
+per C++ header in `libFRFXLL/src/algorithm`:
+
+| Module | C++ source | Stage |
+|--------|------------|-------|
+| `orimap.py` | `imresize.h`, `orimap.h` | Resample to 333 dpi, 4×4 block orientation map and footprint |
+| `fft_enhance.py` | `block_fft.h`, `fft_enhance.h` | Integer-FFT contextual enhancement in 32×32 blocks |
+| `phasemap.py` | `freeman.h`, `conv2.h` | Steerable-filter ridge phase map |
+| `detect.py` | `extract_minutia.h`, `top_n.h` | Phase-gradient tensor candidates, angle tracing, top-68 by confidence |
+| `biffilt.py` | `biffilt.h` | Rotated bifurcation filter bank: confirmation, type, confidence |
+| `intmath.py` | `intmath.h`, `complex.h`, `delay.h` | Fixed-point sin/cos/atan2 tables and helpers |
+
+The C++ streaming delay-line filters are rewritten as numpy operations, but the integer arithmetic is kept, so the
+output is bit-exact. It was checked against the compiled C++ library on 176 runs
+(8 images from each of 11 FVC databases, with and without enhancement): every intermediate map and every
+minutia matches exactly. Extraction takes about 0.3 s per image.
+
+Differences from the C++ library, all switchable in `Params`:
+- No cropping to 256×400 px at 333 dpi (`fj_crop=False`); large FVC2004 images keep their borders.
+- Minutiae are returned in input-image pixels, not as an ISO/ANSI template. The library's
+  phasemap offset (1, 6) is kept.
+- FingerJet directions point into the ridge(s) for both minutia types. The `crossing_number` extractor points out of the
+  ridge at endings. Matching only compares angles from the same extractor, so this has no effect.
+
+The `fingerjet/` package is a derivative of FingerJet FX OSE (© 2011 DigitalPersona, Inc.) and stays under
+the GNU LGPL v3 or later.
 
 ### MTCC cylinder
 
@@ -75,12 +119,13 @@ All parameters live in `mtcc/config.py`. The cylinder and matching values are th
 - **I_f, I_e → [−π, π]**: per-image min-max over the foreground (1st–99th percentile).
 - **G_F, G_E**: the same integrated Gaussian as G_D (σ_D).
 - **Relaxation**: compatibility ρ and iteration from the MCC paper, with Table IV parameters.
-- **Minutiae**: a pure-Python extractor instead of FingerJet FX OSE, so absolute EERs differ from the paper.
+- **Minutiae**: the default `crossing_number` extractor is a simple pure-Python one, so absolute EERs differ from the paper.
+  The paper's FingerJet FX OSE extractor is available as `--extractor fingerjet_fx_ose`.
 
 ## Results
 
 FVC protocol on every `_A` database: 2800 genuine and 4950 impostor comparisons each, default `Params`,
-no per-database tuning. The raw numbers are in [`results/`](results/). Best variant per database in bold.
+no per-database tuning. The raw numbers are in [`results/crossing_number/`](results/crossing_number/). Best variant per database in bold.
 
 ### EER (%)
 
@@ -157,3 +202,5 @@ The Gabor filtering and minutiae code in the July 2025 partial pass was refactor
 - Nilsson, Dahl, Claesson, "The Successive Mean Quantization Transform", ICASSP 2005
 - Bazen & Gerez, "Segmentation of Fingerprint Images", 2001
 - Gottschlich, "Curved Gabor Filters for Fingerprint Image Enhancement", 2014
+- FingerJet FX OSE, DigitalPersona 2011 ([original](https://github.com/FingerJetFXOSE/FingerJetFXOSE),
+  [Visual Studio edition by W. Baig and W. Ellahi](https://github.com/wajihullahbaig/FingerJetFXOSE_VS))

@@ -73,3 +73,29 @@ def plot_cylinder(img, f, p, path, k=None):
                  'minutia direction points right, invalid cells blank')
     fig.savefig(path, dpi=100, bbox_inches='tight')
     plt.close(fig)
+
+
+def plot_eer_comparison(eer, path, variant='co'):
+    """Grouped horizontal bars of EER per database, one bar per run; eer = {run name: {database: EER %}}."""
+    ink, muted, grid, surface = '#0b0b0b', '#52514e', '#e4e3df', '#fcfcfb'
+    colors = ['#2a78d6', '#eb6834', '#1baf7a']                    # categorical slots 1-3, in fixed order
+    runs = list(eer)
+    dbs = sorted(set.intersection(*(set(e) for e in eer.values())), reverse=True)
+    h = 0.8 / len(runs)
+    fig, ax = plt.subplots(figsize=(8, 0.42 * len(dbs) + 1.6), facecolor=surface)
+    ax.set_facecolor(surface)
+    for n, r in enumerate(runs):
+        y = np.arange(len(dbs)) + (len(runs) - 1 - 2 * n) * h / 2
+        ax.barh(y, [eer[r][d] for d in dbs], height=h, color=colors[n], ec=surface, lw=2, label=r, zorder=2)
+    ax.set_yticks(np.arange(len(dbs)), [d.replace('_a', '').replace('_', ' ').upper() for d in dbs])
+    ax.set_xlabel('EER (%), lower is better', color=muted)
+    ax.grid(axis='x', color=grid, lw=0.8, zorder=0)
+    ax.tick_params(colors=muted, length=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_title(f'MCC_{variant} EER by minutiae extractor (FVC protocol)', loc='left', color=ink, pad=28)
+    ax.legend(loc='lower left', bbox_to_anchor=(0, 1.0), ncol=len(runs), frameon=False, labelcolor=muted,
+              handlelength=1, borderaxespad=0.2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=surface)
+    plt.close(fig)

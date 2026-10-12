@@ -53,4 +53,5 @@ uv.lock
 *.tif
 *.jpg
 test_images/
-fvc_data/ 
+fvc_data/
+out/ 

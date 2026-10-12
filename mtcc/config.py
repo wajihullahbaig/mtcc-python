@@ -20,8 +20,14 @@ class Params:
     # --- Gabor filtering ---
     gabor_orients: int = 24
     gabor_k: float = 0.65          # sigma = k / ridge frequency
-    # --- Minutiae ---
-    trace_len: int = 10            # pixels followed along a ridge to estimate direction
+    # --- Minutiae extractor (see extractors.py) ---
+    extractor: str = 'crossing_number'  # 'crossing_number' (minutiae.py) or 'fingerjet_fx_ose' (fingerjet/)
+    dpi: int = 500                 # scan resolution; FingerJet resamples to 333 dpi
+    fj_enhance: bool = True        # FingerJet FFT enhancement (FRFXLL_FEX_ENABLE_ENHANCEMENT)
+    fj_crop: bool = False          # crop to 256x400 px at 333 dpi like the embedded C++ library
+    fj_max_minutiae: int = 68      # FingerJet keeps the N most confident minutiae
+    # --- Minutiae (crossing_number extractor) ---
+    trace_len: int = 10           # pixels followed along a ridge to estimate direction
     min_minutia_dist: float = 6.0  # closer pairs are removed as spurious
     border_dist: float = 12.0      # minutiae closer than this to the background are dropped
     # --- Cylinder (Table IV) ---

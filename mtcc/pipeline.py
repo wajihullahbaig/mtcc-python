@@ -4,7 +4,7 @@ import numpy as np
 
 from .cylinder import make_template, texture_angles
 from .enhance import enhance
-from .minutiae import extract_minutiae
+from .extractors import get_extractor
 
 
 def read_image(path):
@@ -16,9 +16,9 @@ def read_image(path):
 
 
 def extract_features(img, p):
-    """Enhancement maps, minutiae and texture angles for one grayscale image."""
+    """Enhancement maps, minutiae (from the extractor named by p.extractor) and texture angles for one image."""
     f = enhance(img, p)
-    f['minutiae'] = extract_minutiae(f['ridges'], f['mask'], f['orientation'], f['coherence'], p)
+    f['minutiae'] = get_extractor(p.extractor)(img, f, p)
     f['texture'] = texture_angles(f, f['mask'])
     return f
 
