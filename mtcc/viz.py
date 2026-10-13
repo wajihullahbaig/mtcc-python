@@ -83,7 +83,7 @@ def plot_cylinder(img, f, p, path, k=None):
     plt.close(fig)
 
 
-def plot_eer_comparison(eer, path, variant='co'):
+def plot_eer_comparison(eer, path, variant='co', title=None):
     """Grouped horizontal bars of EER per database, one bar per run; eer = {run name: {database: EER %}}."""
     ink, muted, grid, surface = '#0b0b0b', '#52514e', '#e4e3df', '#fcfcfb'
     colors = ['#2a78d6', '#eb6834', '#1baf7a']                    # categorical slots 1-3, in fixed order
@@ -101,7 +101,7 @@ def plot_eer_comparison(eer, path, variant='co'):
     ax.tick_params(colors=muted, length=0)
     for s in ax.spines.values():
         s.set_visible(False)
-    ax.set_title(f'MCC_{variant} EER by minutiae extractor (FVC protocol)', loc='left', color=ink, pad=28)
+    ax.set_title(title or f'MCC_{variant} EER by minutiae extractor (FVC protocol)', loc='left', color=ink, pad=28)
     ax.legend(loc='lower left', bbox_to_anchor=(0, 1.0), ncol=len(runs), frameon=False, labelcolor=muted,
               handlelength=1, borderaxespad=0.2)
     fig.tight_layout()
