@@ -88,12 +88,3 @@ def cylinders(minutiae, texture, mask, variant, p):
     valid = np.repeat(valid[..., None], p.ND, -1)
     return (vals * valid).reshape(n, -1), valid.reshape(n, -1), ok
 
-
-def make_template(minutiae, texture, mask, variant, p):
-    """Template = valid cylinders and their minutiae."""
-    if len(minutiae) < 2:
-        nc = p.NS * p.NS * p.ND
-        return {'variant': variant, 'minutiae': np.zeros((0, 5)), 'values': np.zeros((0, nc), np.float16),
-                'valid': np.zeros((0, nc), bool)}
-    vals, valid, ok = cylinders(minutiae, texture, mask, variant, p)
-    return {'variant': variant, 'minutiae': minutiae[ok], 'values': vals[ok].astype(np.float16), 'valid': valid[ok]}

@@ -50,6 +50,31 @@
                      "--jobs", "12", "--out", "out/evaluate_fingerjet_fx_ose.json"],
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "Match · pick matcher",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["match", "${input:image}", "${input:image2}", "--extractor", "fingerjet_fx_ose", "--dpi", "${input:dpi}",
+                     "--variant", "co", "--matcher", "${input:matcher}"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Evaluate · all matchers (fingerjet_fx_ose)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["evaluate", "${input:folder}", "--extractor", "fingerjet_fx_ose", "--dpi", "${input:dpi}",
+                     "--variants", "o", "co", "--jobs", "12", "--out", "out/evaluate_matchers.json",
+                     "--matchers", "LSS", "LSA", "LGS", "NLSS", "NLSA", "NLGS", "LSSR", "LSAR", "LGSR", "NLSSR", "NLSAR", "NLGSR", "LSSDTR", "LSADTR", "LGSDTR", "NLSSDTR", "NLSADTR", "NLGSDTR", "RLGS", "DTRLGS", "NRLGS", "NDTRLGS", "LSSR_MCA", "LSSDTR_MCA", "NLGSDTR_MCA", "LSSDTR_MCA_SP"],
+            "console": "integratedTerminal",
+            "justMyCode": true
         }
     ],
     "inputs": [
@@ -64,6 +89,19 @@
             "type": "promptString",
             "description": "FVC database folder",
             "default": "C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/FVC2002/Db1_a"
+        },
+        {
+            "id": "image2",
+            "type": "promptString",
+            "description": "Second fingerprint image",
+            "default": "C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/FVC2002/Db1_a/1_2.tif"
+        },
+        {
+            "id": "matcher",
+            "type": "pickString",
+            "description": "Matcher (global score)",
+            "options": ["LSS", "LSA", "LGS", "NLSS", "NLSA", "NLGS", "LSSR", "LSAR", "LGSR", "NLSSR", "NLSAR", "NLGSR", "LSSDTR", "LSADTR", "LGSDTR", "NLSSDTR", "NLSADTR", "NLGSDTR", "RLGS", "DTRLGS", "NRLGS", "NDTRLGS", "LSSR_MCA", "LSSDTR_MCA", "NLGSDTR_MCA", "LSSDTR_MCA_SP"],
+            "default": "LSAR"
         },
         {
             "id": "dpi",

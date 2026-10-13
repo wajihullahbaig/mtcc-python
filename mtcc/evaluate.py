@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .match import match
+from .match import match_all
 from .pipeline import read_image, templates
 
 _NAME = re.compile(r'^(\d+)_(\d+)\.(tif|bmp|png)$', re.I)
@@ -48,15 +48,38 @@ def _job(path, variants, p):
     return templates(read_image(path), variants, p)
 
 
-def evaluate(folder, variants, p, jobs=None):
-    """Run the FVC protocol on one database folder for each variant."""
+def _match_job(pairs, tpl, p, matchers):
+    """Worker: scores of every matcher for a chunk of template pairs."""
+    return [match_all(tpl[a], tpl[b], p, matchers) for a, b in pairs]
+
+
+def _scores(ex, pairs, tpl, p, matchers, size=250):
+    """(n_pairs, n_matchers) scores, matched in parallel chunks that carry only the templates they need."""
+    chunks = [pairs[i:i + size] for i in range(0, len(pairs), size)]
+    needed = [{k: tpl[k] for pair in c for k in pair} for c in chunks]
+    return np.concatenate(list(ex.map(partial(_match_job, p=p, matchers=matchers), chunks, needed)))
+
+
+def fuse(res, a='o', b='co'):
+    """Score-level fusion (mean rule) of variants a and b of one matcher's results, as variant 'a+b'."""
+    g, i = (res[a]['genuine'] + res[b]['genuine']) / 2, (res[a]['impostor'] + res[b]['impostor']) / 2
+    return {'genuine': g, 'impostor': i, **error_rates(g, i)}
+
+
+def evaluate(folder, variants, matchers, p, jobs=None):
+    """Run the FVC protocol on one database folder: {matcher: {variant: scores and error rates}}, plus the
+    o+co fusion when both variants are evaluated."""
     files = list_fvc(folder)
     genuine, impostor = fvc_pairs(list(files))
+    results = {m: {} for m in matchers}
     with ProcessPoolExecutor(jobs) as ex:
         tpl = dict(zip(files, ex.map(partial(_job, variants=variants, p=p), files.values(), chunksize=8)))
-    results = {}
-    for v in variants:
-        gs = np.array([match(tpl[a][v], tpl[b][v], p) for a, b in genuine])
-        im = np.array([match(tpl[a][v], tpl[b][v], p) for a, b in impostor])
-        results[v] = {'genuine': gs, 'impostor': im, **error_rates(gs, im)}
+        for v in variants:
+            tv = {k: t[v] for k, t in tpl.items()}
+            gs, im = _scores(ex, genuine, tv, p, matchers), _scores(ex, impostor, tv, p, matchers)
+            for k, m in enumerate(matchers):
+                results[m][v] = {'genuine': gs[:, k], 'impostor': im[:, k], **error_rates(gs[:, k], im[:, k])}
+    if {'o', 'co'} <= set(variants):
+        for r in results.values():
+            r['o+co'] = fuse(r)
     return results

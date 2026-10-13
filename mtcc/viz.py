@@ -17,6 +17,13 @@ def _minutiae(ax, m, ms=6):
         ax.plot([x, x + 12 * np.cos(t)], [y, y + 12 * np.sin(t)], c=c, lw=1.5)
 
 
+def _singular(ax, sp, ms=14):
+    """Draw cores (magenta circles) and deltas (orange triangles)."""
+    for (key, marker, c) in (('core', 'o', 'tab:pink'), ('delta', '^', 'tab:orange')):
+        if len(sp.get(key, ())):
+            ax.plot(sp[key][:, 0], sp[key][:, 1], marker, mfc='none', mec=c, ms=ms, mew=2.5, label=key)
+
+
 def plot_features(img, f, path):
     """Twelve-panel figure of every enhancement stage, texture map and the minutiae."""
     fg = lambda k: np.where(f['mask'], f[k], np.nan)
@@ -32,6 +39,7 @@ def plot_features(img, f, path):
         ax.set_title(title)
         ax.axis('off')
     _minutiae(axes.flat[-1], f['minutiae'])
+    _singular(axes.flat[-1], f['singular'])
     fig.tight_layout()
     fig.savefig(path, dpi=100)
     plt.close(fig)
@@ -97,5 +105,39 @@ def plot_eer_comparison(eer, path, variant='co'):
     ax.legend(loc='lower left', bbox_to_anchor=(0, 1.0), ncol=len(runs), frameon=False, labelcolor=muted,
               handlelength=1, borderaxespad=0.2)
     fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=surface)
+    plt.close(fig)
+
+
+def plot_matcher_heatmap(eer, path, title):
+    """EER heatmap, matchers (rows, best mean first) x databases plus their mean; eer = {matcher: {database: EER %}}."""
+    from matplotlib.colors import LinearSegmentedColormap, LogNorm
+    ink, muted, surface = '#0b0b0b', '#52514e', '#fcfcfb'
+    ramp = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b']   # sequential blue 100-700
+    dbs = sorted(set.intersection(*(set(e) for e in eer.values())))
+    rows = sorted(eer, key=lambda m: np.mean([eer[m][d] for d in dbs]))
+    z = np.array([[eer[m][d] for d in dbs] + [np.mean([eer[m][d] for d in dbs])] for m in rows])
+    cols = [d.replace('_a', '').replace('_', ' ').upper() for d in dbs] + ['Mean']
+    fig, ax = plt.subplots(figsize=(1.0 * len(cols) + 2.4, 0.36 * len(rows) + 1.6), facecolor=surface)
+    norm = LogNorm(max(z.min(), 0.1), z.max())
+    ax.imshow(z, cmap=LinearSegmentedColormap.from_list('seq', ramp), norm=norm, aspect='auto')
+    best = np.round(z, 2) == np.round(z, 2).min(0)                  # ties at the shown precision
+    for (i, j), v in np.ndenumerate(z):
+        dark = norm(v) > 0.55
+        ax.text(j, i, f'{v:.2f}', ha='center', va='center', fontsize=8.5, color='white' if dark else ink,
+                fontweight='bold' if best[i, j] else 'normal')
+    ax.set_xticks(range(len(cols)), cols, rotation=35, ha='right')
+    ax.set_yticks(range(len(rows)), rows)
+    ax.axvline(len(dbs) - 0.5, color=surface, lw=4)                  # spacer before the mean column
+    ax.set_xticks(np.arange(len(cols) + 1) - 0.5, minor=True)
+    ax.set_yticks(np.arange(len(rows) + 1) - 0.5, minor=True)
+    ax.grid(which='minor', color=surface, lw=2)
+    ax.tick_params(which='both', colors=muted, length=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_title(title, loc='left', color=ink, pad=12)
+    fig.text(0.01, 0.005, 'EER (%), lower is better; bold = best per column; rows sorted by mean EER; log colour scale',
+             color=muted, fontsize=8.5)
+    fig.tight_layout(rect=(0, 0.02, 1, 1))
     fig.savefig(path, dpi=150, facecolor=surface)
     plt.close(fig)

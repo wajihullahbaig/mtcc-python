@@ -41,6 +41,10 @@ class Params:
     min_vc: float = 0.20
     min_m: int = 1
     # --- Matching (Table IV) ---
+    matcher: str = 'LSAR'          # global score, see match.py (e.g. LSSR, LGSR, NLSADTR, RLGS)
+    max_nr: int = 40               # most pairs entering relaxation
+    mu_rho_dtr: float = 1 / 30     # DTR distance term on |d_A - d_B| / (d_A + d_B)
+    tau_rho_dtr: float = -150.0
     min_me: float = 0.20
     delta_theta: float = 2 * np.pi / 3
     mu_p: float = 30.0
@@ -51,6 +55,13 @@ class Params:
     mu_rho: tuple = (12.0, np.pi / 12, np.pi / 28)
     tau_rho: tuple = (-0.8, -30.0, -10.0)
     n_rel: int = 4
+    # --- Minutiae coherence analysis (_MCA matchers, see mca.py) ---
+    mca_max_nb: int = 20           # neighbours stored per minutia
+    mca_cmp_nb: int = 10           # nearest neighbours compared per pair
+    mca2_floor: float = 0.05       # _MCA2: lowest neighbourhood agreement factor
+    # --- Singular points (_SP matchers, see singular.py) ---
+    sp_block: int = 8              # orientation sampling step for the Poincare index (pixels)
+    sp_sigma: float = 1.5          # smoothing of the sampled orientation field (blocks)
 
     def to_dict(self):
         """Parameters as a plain dict (for saving with results)."""

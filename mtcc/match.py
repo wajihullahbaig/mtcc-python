@@ -1,12 +1,41 @@
-"""Cylinder similarity (Eqs. 15-18) and global score by Local Similarity Sort with Relaxation (LSSR).
+"""Cylinder similarity (Eqs. 15-18) and global scores built from consolidation stages.
 
-The relaxation follows Cappelli et al., "Minutia Cylinder-Code" (PAMI 2010), Sec. 5,
-with the parameter values of MTCC Table IV.
+Stages follow Cappelli et al., "Minutia Cylinder-Code" (PAMI 2010), Sec. 5, and the author's MATLAB matchers:
+  N    normalise each similarity by how similar its row and column are to the rest of the matrix
+  LSS  candidate pairs: all cells, sorted by similarity (not one-to-one)
+  LSA  candidate pairs: optimal one-to-one assignment (Hungarian)
+  LGS  greedy one-to-one: drop pairs whose minutiae an earlier pair already used
+  R    relaxation by geometric compatibility, keep the n_P most efficient pairs
+  DTR  distortion-tolerant relaxation: distance compatibility on |d_A - d_B| / (d_A + d_B)
+  MCA  minutiae coherence analysis (mca.py) sets the relaxation's initial values and final weights
+  SP   MCA with neighbourhood qualities weighted by the position relative to a singular point (singular.py)
+  MCA2 revised MCA: relaxation starts from the local similarity times rotation-invariant neighbourhood agreement
+A matcher name chains them in order, e.g. NLSADTR = N, LSA, DTR, RLGS = LSS, R, LGS and LSSDTR_MCA_SP.
+The global score is the mean of the first n_P values left.
 """
+import re
+
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from scipy.special import expit
 
+from . import mca
 from .cylinder import d_phi
+
+MATCHERS = ('LSS', 'LSA', 'LGS', 'NLSS', 'NLSA', 'NLGS',
+            'LSSR', 'LSAR', 'LGSR', 'NLSSR', 'NLSAR', 'NLGSR',
+            'LSSDTR', 'LSADTR', 'LGSDTR', 'NLSSDTR', 'NLSADTR', 'NLGSDTR',
+            'RLGS', 'DTRLGS', 'NRLGS', 'NDTRLGS', 'LSSR_MCA', 'LSSDTR_MCA', 'NLGSDTR_MCA', 'LSSDTR_MCA_SP')
+_NAME = re.compile(r'(N?)(LSS|LSA)?(LGS)?(?:(R|DTR)(LGS)?(?:_(MCA)(_SP)?|_(MCA2))?)?')
+
+
+def stages(name):
+    """Stages of a matcher name, e.g. 'NLGSR' -> ['N', 'LSS', 'LGS', 'R']."""
+    m = _NAME.fullmatch(name)
+    if not name or not m:
+        raise ValueError(f"unknown matcher {name!r}, e.g. {', '.join(MATCHERS)}")
+    norm, sel, lgs, rel, post, coh, sp, coh2 = m.groups()
+    return [s for s in (norm, sel or 'LSS', lgs, rel, post, coh or coh2, sp and 'SP') if s]
 
 
 def _norm_sim(a, va, b, vb):
@@ -34,49 +63,95 @@ def similarity_matrix(A, B, p):
     return np.where(matchable & aligned, S, 0)
 
 
+def normalise(S):
+    """N: scale each cell by 1 - (sum of the other cells in its row and column) / (nA + nB - 2)."""
+    others = S.sum(0, keepdims=True) + S.sum(1, keepdims=True) - 2 * S
+    return S * (1 - others / max(sum(S.shape) - 2, 1))
+
+
+def candidates(S, assignment):
+    """Non-zero pairs (ia, ib) by decreasing similarity: every cell (LSS) or the Hungarian assignment (LSA)."""
+    if assignment:
+        ia, ib = linear_sum_assignment(S, maximize=True)
+    else:
+        ia, ib = np.unravel_index(np.arange(S.size), S.shape)
+    order = np.argsort(-S[ia, ib], kind='stable')
+    ia, ib = ia[order], ib[order]
+    keep = S[ia, ib] > 0
+    return ia[keep], ib[keep]
+
+
+def one_to_one(ia, ib):
+    """LGS: mask of the pairs whose minutiae no earlier pair used."""
+    used_a, used_b, keep = set(), set(), np.zeros(len(ia), bool)
+    for k, (i, j) in enumerate(zip(ia.tolist(), ib.tolist())):
+        if i not in used_a and j not in used_b:
+            keep[k] = True
+            used_a.add(i)
+            used_b.add(j)
+    return keep
+
+
 def _geometry(m):
     """Pairwise distance, direction difference and radial angle (d_R) between minutiae."""
     dx, dy = m[None, :, 0] - m[:, None, 0], m[None, :, 1] - m[:, None, 1]
     return np.hypot(dx, dy), d_phi(m[:, None, 2], m[None, :, 2]), d_phi(m[:, None, 2], np.arctan2(dy, dx))
 
 
-def lssr(S, A, B, p):
-    """Global score: greedy one-to-one top pairs, relaxed by geometric compatibility."""
-    n_a, n_b = S.shape
-    if min(n_a, n_b) < 2:
-        return 0.0
-    n_p = p.min_np + int(round(expit(p.tau_p * (min(n_a, n_b) - p.mu_p)) * (p.max_np - p.min_np)))
-
-    pairs, used_a, used_b = [], set(), set()
-    for idx in np.argsort(S, axis=None)[::-1]:
-        i, j = divmod(int(idx), n_b)
-        if S[i, j] <= 0 or len(pairs) == min(n_a, n_b):
-            break
-        if i not in used_a and j not in used_b:
-            pairs.append((i, j))
-            used_a.add(i)
-            used_b.add(j)
-    if len(pairs) < 2:
-        return 0.0
-    ia, ib = np.array(pairs).T
-
+def relax(ia, ib, lam, A, B, p, tolerant=False):
+    """Relaxed similarities of the pairs (ia, ib) after n_rel iterations (R, or DTR if tolerant)."""
     ga, gb = _geometry(A['minutiae'][ia]), _geometry(B['minutiae'][ib])
-    d = (np.abs(ga[0] - gb[0]), np.abs(d_phi(ga[1], gb[1])), np.abs(d_phi(ga[2], gb[2])))
-    rho = np.prod([expit(tau * (di - mu)) for di, mu, tau in zip(d, p.mu_rho, p.tau_rho)], axis=0)
+    d1, mu, tau = np.abs(ga[0] - gb[0]), list(p.mu_rho), list(p.tau_rho)
+    if tolerant:
+        d1 = d1 / np.maximum(ga[0] + gb[0], 1e-12)
+        mu[0], tau[0] = p.mu_rho_dtr, p.tau_rho_dtr
+    d = (d1, np.abs(d_phi(ga[1], gb[1])), np.abs(d_phi(ga[2], gb[2])))
+    rho = np.prod([expit(t * (di - m)) for di, m, t in zip(d, mu, tau)], axis=0)
     np.fill_diagonal(rho, 0)
-
-    lam0 = S[ia, ib]
-    lam = lam0.copy()
     for _ in range(p.n_rel):
-        lam = p.w_r * lam + (1 - p.w_r) * (rho @ lam) / (len(lam) - 1)
-    top = np.argsort(lam / lam0)[::-1][:n_p]                       # most efficient pairs
-    return float(lam[top].sum() / n_p)
+        lam = p.w_r * lam + (1 - p.w_r) * (rho @ lam) / max(len(lam) - 1, 1)
+    return lam
+
+
+def global_score(S, A, B, p, name):
+    """Global score of matcher `name` from the local similarity matrix S."""
+    n_min = min(S.shape)
+    n_p = min(p.min_np + int(round(expit(p.tau_p * (n_min - p.mu_p)) * (p.max_np - p.min_np))), n_min)
+    steps = stages(name)
+    if 'N' in steps:
+        S = normalise(S)
+    ia, ib = candidates(S, 'LSA' in steps)
+    s = S[ia, ib]
+    for step in steps:
+        if step == 'LGS':
+            keep = one_to_one(ia, ib)
+            ia, ib, s = ia[keep], ib[keep], s[keep]
+        elif step in ('R', 'DTR'):
+            nr = min(n_min, p.max_nr)
+            ia, ib, s = ia[:nr], ib[:nr], s[:nr]
+            if 'MCA' in steps:
+                lam0, scale, final = mca.initial(ia, ib, s, A, B, p, 'SP' in steps)
+            elif 'MCA2' in steps:
+                lam0, scale, final = mca.initial2(ia, ib, s, A, B, p)
+            else:
+                lam0, scale, final = s, s, None
+            lam = relax(ia, ib, lam0, A, B, p, step == 'DTR')
+            eta = lam / scale
+            top = np.argsort(-eta, kind='stable')[:n_p]               # most efficient pairs
+            ia, ib, s = ia[top], ib[top], (lam if final is None else eta * final)[top]
+    return float(s[:n_p].mean()) if len(s) else 0.0
+
+
+def match_all(A, B, p, matchers):
+    """Scores of several matchers for two templates of the same variant, sharing one similarity matrix."""
+    if A['variant'] != B['variant']:
+        raise ValueError(f"Template variants differ: {A['variant']} vs {B['variant']}")
+    if min(len(A['values']), len(B['values'])) < 2:
+        return [0.0] * len(matchers)
+    S = similarity_matrix(A, B, p)
+    return [global_score(S, A, B, p, m) for m in matchers]
 
 
 def match(A, B, p):
-    """Similarity score of two templates of the same variant."""
-    if A['variant'] != B['variant']:
-        raise ValueError(f"Template variants differ: {A['variant']} vs {B['variant']}")
-    if len(A['values']) == 0 or len(B['values']) == 0:
-        return 0.0
-    return lssr(similarity_matrix(A, B, p), A, B, p)
+    """Similarity score of two templates with the matcher named by p.matcher."""
+    return match_all(A, B, p, [p.matcher])[0]
