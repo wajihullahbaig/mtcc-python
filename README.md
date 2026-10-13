@@ -23,7 +23,7 @@ pip install -r requirements.txt
 # Extract a template; optionally save the pipeline and cylinder figures
 python -m mtcc extract 1_1.tif -o 1_1.npz --variant co --plot pipeline.png --plot-cylinder cylinder.png
 
-# Match two images or templates
+# Match two images or templates (default matcher LSAR; any matcher name, e.g. --matcher NLSADTR)
 python -m mtcc match 1_1.npz 1_2.tif --variant co
 
 # FVC protocol (2800 genuine / 4950 impostor) on one database, all variants
@@ -31,6 +31,12 @@ python -m mtcc evaluate FVC2002/Db1_a --jobs 8 --out results/crossing_number/FVC
 
 # Same, with the FingerJet FX OSE minutiae extractor (pass the scan resolution, e.g. 569 for FVC2002 DB2)
 python -m mtcc evaluate FVC2002/Db2_a --extractor fingerjet_fx_ose --dpi 569 --jobs 8
+
+# Several matchers at once (they share each similarity matrix); --scores keeps per-pair scores
+python -m mtcc evaluate FVC2002/Db1_a --variants o co --matchers LSAR LGSR NLSAR LSSDTR --out run/FVC2002_db1_a.json
+
+# Matcher x database table (Markdown) and EER heatmap for a folder of evaluate results
+python -m mtcc matchers results/fingerjet_fx_ose --variant co --plot docs/matchers_fingerjet_fx_ose_co.png
 ```
 
 From Python:
@@ -57,8 +63,10 @@ All stages on FVC2002 DB1_A `1_1.tif`:
 | STFT analysis + enhancement | `enhance.stft` | 14 px blocks, 6 px overlap; spectral moments give I_o, I_f, I_e and coherence; contextual angular × radial filtering (Chikkerur et al.) |
 | Gabor | `enhance.gabor` | Orientation-adaptive even Gabor at the median ridge frequency; its sign gives the ridge map |
 | Minutiae | `extractors.py` | Pluggable: `crossing_number` (`minutiae.py`) or `fingerjet_fx_ose` (`fingerjet/`), see below |
+| Singular points | `singular.py` | Cores and deltas by the Poincaré index of the smoothed orientation field (`_SP` matchers) |
 | Cylinders | `cylinder.py` | Eqs. 1–14, variants `o f e co cf ce` |
-| Matching | `match.py` | Euclidean (Eq. 15) for `o`, double-angle (Eqs. 16–18) for texture; LSSR global score |
+| Template | `pipeline.make_template` | Valid cylinders, minutiae, nearest-neighbour table and neighbourhood quality (`mca.py`) |
+| Matching | `match.py` | Euclidean (Eq. 15) for `o`, double-angle (Eqs. 16–18) for texture; 26 global-score matchers, default LSAR (see [Matchers](#matchers)) |
 | Evaluation | `evaluate.py` | FVC protocol, EER, FMR1000 |
 
 ### Minutiae extractors
@@ -118,126 +126,217 @@ All parameters live in `mtcc/config.py`. The cylinder and matching values are th
 - **STFT window**: the 14×14 block plus 6 px overlap on each side (26 px window, 32-point FFT), following Chikkerur's STFT code.
 - **I_f, I_e → [−π, π]**: per-image min-max over the foreground (1st–99th percentile).
 - **G_F, G_E**: the same integrated Gaussian as G_D (σ_D).
-- **Relaxation**: compatibility ρ and iteration from the MCC paper, with Table IV parameters.
+- **Relaxation**: compatibility ρ and iteration from the MCC paper, with Table IV parameters; at most 40 pairs enter it.
 - **Minutiae**: the default `crossing_number` extractor is a simple pure-Python one, so absolute EERs differ from the paper.
   The paper's FingerJet FX OSE extractor is available as `--extractor fingerjet_fx_ose`.
+
+## Matchers
+
+The global score is built from consolidation stages of Cappelli et al. (MCC, PAMI 2010, Sec. 5) and of the
+author's MATLAB matchers. A matcher name chains them in order, so every MATLAB name runs as is:
+`NLSADTR` = N → LSA → DTR, `RLGS` = LSS → R → LGS, `LSSDTR_MCA_SP` = LSS → DTR with MCA and SP.
+
+| Stage | What it does |
+|-------|--------------|
+| `N` | Normalise each local similarity by `1 − (sum of the other cells in its row and column) / (nA + nB − 2)` |
+| `LSS` | Candidate pairs: every cell, by decreasing similarity (not one-to-one) |
+| `LSA` | Candidate pairs: optimal one-to-one assignment (Hungarian, `scipy.optimize.linear_sum_assignment`) |
+| `LGS` | Greedy one-to-one: drop pairs whose minutiae an earlier pair already used (before or after relaxation) |
+| `R` | Relaxation by geometric compatibility (distance, direction and radial-angle differences); keeps the n_P most efficient pairs |
+| `DTR` | Distortion-tolerant relaxation: the distance term uses `|d_A − d_B| / (d_A + d_B)` (μ = 1/30, τ = −150) |
+| `_MCA` | Minutiae coherence analysis: neighbourhood coherence and quality set the relaxation start values and final weights |
+| `_SP` | MCA qualities weighted by position relative to a singular point (core, else delta, else minutiae centroid) |
+| `_MCA2` | Revised MCA (not yet benchmarked): relaxation starts from the local similarity × rotation-invariant neighbourhood agreement |
+
+Without `R`/`DTR`, the score is the mean of the n_P best candidates; with them, the mean of the n_P most
+efficient relaxed values. `python -m mtcc evaluate --matchers ...` evaluates any of them; the 26 distinct pipelines benchmarked below are listed in
+`match.MATCHERS`. When both `o` and `co` are evaluated, the results also hold their mean-rule score fusion `o+co`.
+
+### Differences from the MATLAB code
+
+- **R** uses Cappelli's distance term (μ = 12, τ = −0.8). The MATLAB used the DTR values (1/30, −150) on pixel
+  distances, which makes almost every pair of pairs incompatible.
+- **LSS** takes the top cells of the whole matrix (Cappelli). The MATLAB used the best cell of each column.
+- **Names are followed where the MATLAB body differs:** `DTRLGS` called plain R (it equalled `RLGS`), and `NLGSR` /
+  `NLGSDTR` ran LGS after relaxation.
+- **Duplicates are not listed separately:** LGS after LSA changes nothing (the assignment is already one-to-one), so
+  `LSARLGS` = `LSAR`, `NLSARLGS` = `NLSALGSR` = `NLSAR`, and `NLSADTRLGS` = `NLSALGSDTR` = `NLSADTR`.
+- **MCA**: the quantified variant of `LSSDTR_MCA.m` is used by all three `_MCA` matchers (`LSSR_MCA.m` and
+  `NLGSDTR_MCA.m` used slightly different start values). Neighbours are the 20 nearest typed minutiae within R + 3σ_S.
+- **SP**: the MATLAB core/delta-first passes ended up building the full similarity matrix, and its quality
+  penalty was only stored when no singular point was found. The port applies the intended penalty (×0.75 / ×0.5 for
+  minutiae beyond R + 3σ_S in the 135–180° / 180–285° sectors) around the first core, else delta, else centroid, and
+  only in `_SP` matchers. The MATLAB detector (`walking.m`) is replaced by the Poincaré index.
 
 ## Results
 
 FVC protocol on every `_A` database: 2800 genuine and 4950 impostor comparisons each, default `Params`,
-no per-database tuning. FingerJet runs use the scan resolution of each database (`--dpi 569` for FVC2002 DB2,
-`--dpi 512` for FVC2004 DB3, 500 otherwise). The raw numbers are in
+no per-database tuning. Scan resolution as given per database (`--dpi 569` for FVC2002 DB2, `--dpi 512` for FVC2004
+DB3, 500 otherwise). Every run evaluates all 26 matchers on all six variants; the raw numbers are in
 [`results/crossing_number/`](results/crossing_number/) and [`results/fingerjet_fx_ose/`](results/fingerjet_fx_ose/).
-Best variant per database in bold.
 
-### Minutiae extractor comparison (EER %, MCC_co)
+### Matcher comparison
+
+Mean EER (%) over the 11 databases for a selection of matchers (all 26 are in the heatmaps below). Best per column in bold.
+
+| Matcher | Stages | FingerJet MCC_o | FingerJet MCC_co | crossing_number MCC_o | crossing_number MCC_co |
+|---|---|--:|--:|--:|--:|
+| LSAR | LSA → R | **3.33** | **3.41** | 9.61 | **5.56** |
+| LGSR | LSS → LGS → R | 3.34 | 3.43 | 9.57 | **5.56** |
+| NLSAR | N → LSA → R | 3.41 | 3.53 | 9.45 | **5.56** |
+| LSADTR | LSA → DTR | 3.40 | 3.59 | **9.38** | 5.79 |
+| LSSR | LSS → R | 3.80 | 4.04 | 9.99 | 6.55 |
+| LSSDTR | LSS → DTR | 3.69 | 4.31 | 9.81 | 7.27 |
+| NLSSR | N → LSS → R | 4.15 | 7.44 | 10.40 | 8.35 |
+| LSSDTR_MCA | LSS → DTR → MCA | 5.44 | 8.43 | 14.78 | 13.15 |
+| LSSDTR_MCA_SP | LSS → DTR → MCA → SP | 5.37 | 8.30 | 14.16 | 12.79 |
+| LSA | LSA | 8.80 | 14.89 | 20.93 | 20.56 |
+| LSS | LSS | 10.69 | 20.46 | 23.61 | 26.21 |
+
+#### EER heatmaps, MCC_co
+
+![Matchers, FingerJet, MCC_co](docs/matchers_fingerjet_fx_ose_co.png)
+
+![Matchers, crossing number, MCC_co](docs/matchers_crossing_number_co.png)
+
+<details>
+<summary>EER heatmaps, MCC_o</summary>
+
+![Matchers, FingerJet, MCC_o](docs/matchers_fingerjet_fx_ose_o.png)
+
+![Matchers, crossing number, MCC_o](docs/matchers_crossing_number_o.png)
+
+</details>
+
+Reproduce with `python -m mtcc matchers results/fingerjet_fx_ose --variant co --plot docs/matchers_fingerjet_fx_ose_co.png`
+(it also prints the full Markdown table).
+
+**What the matcher comparison shows**
+
+- **Relaxation does most of the work.** Without R or DTR (LSS, LSA, LGS and their N versions) the mean EER is
+  2–6× higher, and on single databases up to 25×.
+- **One-to-one pairs before relaxation help.** LSA → R (LSAR) and greedy LGS → R (LGSR) are at or near the top in all
+  four settings and lower the mean EER of Cappelli's LSS → R (LSSR) by 4–16%. LSSR is still best on FVC2002 DB1
+  (0.40% with MCC_co).
+- **R vs DTR is close.** R is slightly better with FingerJet minutiae; DTR wins with the noisier crossing-number
+  minutiae on MCC_o (LSADTR 9.38%).
+- **Normalisation (N) needs a one-to-one selector.** NLSAR ties for best on crossing-number MCC_co and is best on
+  FVC2002 DB3/DB4 with FingerJet, but N before LSS nearly doubles the MCC_co error (NLSSR 7.44% vs LSSR 4.04%).
+- **MCA as in the MATLAB code is worse everywhere** (LSSDTR_MCA 8.43% vs LSSDTR 4.31%, FingerJet MCC_co), and the
+  singular-point weights change it little. Its start values `w(v + me)/2` are nearly the same for every pair, so the
+  cylinder similarity no longer enters the relaxation, and dense templates collect high impostor scores.
+- **LSAR is the default** (`Params.matcher`): best mean EER with FingerJet on both MCC_o and MCC_co and tied best
+  on crossing-number MCC_co. Against the previous default (greedy one-to-one + R, no 40-pair cap) the mean MCC_co EER
+  drops from 3.64% to 3.41% (FingerJet) and from 5.90% to 5.56% (crossing number).
+
+### Minutiae extractor comparison (EER %, MCC_co, LSAR)
 
 ![EER comparison](docs/eer_comparison.png)
 
 | Database | crossing_number | fingerjet_fx_ose | Paper |
 |----------|----------------:|-----------------:|------:|
-| FVC2000 DB2 | 1.93 | **1.03** | – |
-| FVC2000 DB3 | 8.57 | **5.54** | – |
-| FVC2000 DB4 | 4.08 | **3.64** | – |
-| FVC2002 DB1 | 1.43 | **0.61** | 0.42 |
-| FVC2002 DB2 | 2.00 | **0.36** | 0.38 |
-| FVC2002 DB3 | 9.96 | **6.25** | 4.42 |
-| FVC2002 DB4 | 3.43 | **3.21** | 1.61 |
-| FVC2004 DB1 | 8.50 | **4.00** | 3.85 |
-| FVC2004 DB2 | 9.68 | **8.10** | 5.35 |
-| FVC2004 DB3 | 10.04 | **3.92** | 3.78 |
-| FVC2004 DB4 | 5.29 | **3.43** | 2.38 |
+| FVC2000 DB2 | 1.68 | **0.85** | – |
+| FVC2000 DB3 | 7.61 | **5.18** | – |
+| FVC2000 DB4 | 4.28 | **3.36** | – |
+| FVC2002 DB1 | 1.57 | **0.61** | 0.42 |
+| FVC2002 DB2 | 1.75 | **0.43** | 0.38 |
+| FVC2002 DB3 | 9.18 | **5.50** | 4.42 |
+| FVC2002 DB4 | 3.18 | **3.07** | 1.61 |
+| FVC2004 DB1 | 7.90 | **3.61** | 3.85 |
+| FVC2004 DB2 | 9.25 | **7.86** | 5.35 |
+| FVC2004 DB3 | 10.00 | **3.72** | 3.78 |
+| FVC2004 DB4 | 4.75 | **3.32** | 2.38 |
 
-Reproduce with `python -m mtcc compare results/crossing_number results/fingerjet_fx_ose --variant co --plot docs/eer_comparison.png`.
+Reproduce with `python -m mtcc compare results/crossing_number results/fingerjet_fx_ose --variant co --matcher LSAR --plot docs/eer_comparison.png`.
 The paper column is MCC_co from Baig et al. (2018), which used FingerJet FX OSE minutiae; it has no FVC2000 results.
 
-### `fingerjet_fx_ose` extractor
+### `fingerjet_fx_ose` extractor (LSAR)
 
 #### EER (%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
 |----------|------:|------:|------:|------:|------:|------:|
-| FVC2000 DB2 | 1.07 | 2.82 | 2.68 | **1.03** | 2.57 | 2.26 |
-| FVC2000 DB3 | **5.10** | 8.00 | 8.54 | 5.54 | 7.96 | 8.39 |
-| FVC2000 DB4 | **3.50** | 5.93 | 5.39 | 3.64 | 5.68 | 5.07 |
-| FVC2002 DB1 | **0.54** | 1.01 | 1.36 | 0.61 | 1.03 | 1.29 |
-| FVC2002 DB2 | **0.32** | 1.15 | 0.99 | 0.36 | 1.11 | 0.99 |
-| FVC2002 DB3 | **5.51** | 10.22 | 9.29 | 6.25 | 9.57 | 8.85 |
-| FVC2002 DB4 | **2.97** | 4.82 | 3.64 | 3.21 | 4.79 | 3.60 |
-| FVC2004 DB1 | 4.04 | 9.61 | 9.97 | **4.00** | 9.64 | 9.43 |
-| FVC2004 DB2 | **7.64** | 14.32 | 14.10 | 8.10 | 14.71 | 13.96 |
-| FVC2004 DB3 | 4.00 | 6.10 | 7.75 | **3.92** | 5.75 | 7.39 |
-| FVC2004 DB4 | **3.43** | 6.00 | 5.46 | **3.43** | 6.32 | 5.39 |
+| FVC2000 DB2 | 1.03 | 2.39 | 2.22 | **0.85** | 2.39 | 2.18 |
+| FVC2000 DB3 | **5.07** | 7.50 | 8.25 | 5.18 | 7.25 | 7.92 |
+| FVC2000 DB4 | **3.03** | 5.57 | 5.15 | 3.36 | 5.68 | 4.71 |
+| FVC2002 DB1 | **0.57** | 1.01 | 1.25 | 0.61 | 1.03 | 1.25 |
+| FVC2002 DB2 | **0.28** | 1.07 | 0.76 | 0.43 | 0.93 | 0.85 |
+| FVC2002 DB3 | **5.01** | 9.15 | 8.54 | 5.50 | 8.50 | 7.90 |
+| FVC2002 DB4 | 3.11 | 4.61 | 3.50 | **3.07** | 4.46 | 3.32 |
+| FVC2004 DB1 | 3.96 | 8.72 | 9.07 | **3.61** | 8.79 | 8.75 |
+| FVC2004 DB2 | **7.01** | 14.04 | 13.32 | 7.86 | 13.68 | 13.01 |
+| FVC2004 DB3 | 3.92 | 5.75 | 6.96 | **3.72** | 5.43 | 6.43 |
+| FVC2004 DB4 | 3.68 | 5.07 | 5.07 | **3.32** | 5.61 | 4.89 |
 
 #### FMR1000 (% FNMR at FMR ≤ 0.1%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
 |----------|------:|------:|------:|------:|------:|------:|
-| FVC2000 DB2 | **1.86** | 5.93 | 5.43 | 1.96 | 4.89 | 4.86 |
-| FVC2000 DB3 | 9.00 | 11.36 | 12.21 | **7.89** | 11.54 | 11.64 |
-| FVC2000 DB4 | **8.50** | 14.75 | 10.86 | 8.57 | 13.79 | 9.46 |
-| FVC2002 DB1 | **0.71** | 1.89 | 2.57 | 0.93 | 1.93 | 2.14 |
-| FVC2002 DB2 | 0.50 | 2.14 | 1.96 | **0.46** | 1.89 | 1.68 |
-| FVC2002 DB3 | **13.79** | 19.46 | 20.50 | 15.00 | 20.64 | 19.04 |
-| FVC2002 DB4 | 7.18 | 10.39 | 8.50 | **6.68** | 9.00 | 7.61 |
-| FVC2004 DB1 | 13.29 | 24.79 | 28.61 | **12.68** | 24.61 | 25.21 |
-| FVC2004 DB2 | **15.61** | 30.75 | 30.46 | 15.86 | 29.86 | 31.14 |
-| FVC2004 DB3 | 8.32 | 11.54 | 12.64 | **8.11** | 11.04 | 11.89 |
-| FVC2004 DB4 | 9.86 | 13.43 | 12.57 | **9.57** | 13.25 | 12.54 |
+| FVC2000 DB2 | 1.79 | 4.50 | 5.25 | **1.68** | 4.29 | 4.43 |
+| FVC2000 DB3 | 8.11 | 11.00 | 11.68 | **8.00** | 10.64 | 11.36 |
+| FVC2000 DB4 | 10.43 | 14.04 | 11.25 | **8.07** | 13.14 | 9.86 |
+| FVC2002 DB1 | **0.75** | 1.61 | 2.54 | 0.86 | 1.61 | 1.82 |
+| FVC2002 DB2 | **0.50** | 1.89 | 1.43 | 0.54 | 1.68 | 1.61 |
+| FVC2002 DB3 | **14.46** | 21.36 | 19.64 | 15.11 | 19.54 | 19.25 |
+| FVC2002 DB4 | 6.18 | 8.57 | 7.75 | **5.61** | 8.29 | 7.54 |
+| FVC2004 DB1 | 11.82 | 22.11 | 25.25 | **9.86** | 20.64 | 24.46 |
+| FVC2004 DB2 | 15.79 | 28.29 | 28.32 | **15.07** | 27.46 | 26.89 |
+| FVC2004 DB3 | 8.39 | 9.93 | 11.46 | **7.61** | 10.39 | 10.79 |
+| FVC2004 DB4 | **8.04** | 11.86 | 11.50 | 8.93 | 12.29 | 10.46 |
 
-### `crossing_number` extractor
+### `crossing_number` extractor (LSAR)
 
 #### EER (%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
-|----------|------:|------:|------:|-------:|-------:|-------:|
-| FVC2000 DB2 | 4.82 | 4.82 | 6.10 | **1.93** | 4.54 | 5.07 |
-| FVC2000 DB3 | 10.08 | 12.28 | 13.57 | **8.57** | 11.64 | 13.07 |
-| FVC2000 DB4 | 8.79 | 6.50 | 6.03 | **4.08** | 6.43 | 5.75 |
-| FVC2002 DB1 | 2.85 | 2.46 | 3.61 | **1.43** | 2.29 | 3.25 |
-| FVC2002 DB2 | 3.25 | 3.21 | 2.79 | **2.00** | 2.99 | 2.61 |
-| FVC2002 DB3 | 14.64 | 16.36 | 14.97 | **9.96** | 15.01 | 14.25 |
-| FVC2002 DB4 | 7.75 | 5.61 | 4.82 | **3.43** | 5.29 | 4.75 |
-| FVC2004 DB1 | 15.46 | 14.79 | 16.61 | **8.50** | 14.79 | 15.92 |
-| FVC2004 DB2 | 15.43 | 18.82 | 17.72 | **9.68** | 17.78 | 17.21 |
-| FVC2004 DB3 | 14.89 | 14.46 | 18.08 | **10.04** | 13.72 | 17.51 |
-| FVC2004 DB4 | 10.71 | 9.21 | 7.78 | **5.29** | 8.64 | 7.57 |
+|----------|------:|------:|------:|------:|------:|------:|
+| FVC2000 DB2 | 4.46 | 4.04 | 5.15 | **1.68** | 3.61 | 4.46 |
+| FVC2000 DB3 | 8.85 | 10.82 | 12.25 | **7.61** | 10.32 | 11.32 |
+| FVC2000 DB4 | 9.03 | 6.54 | 5.61 | **4.28** | 5.92 | 5.68 |
+| FVC2002 DB1 | 2.82 | 2.25 | 3.21 | **1.57** | 2.36 | 2.97 |
+| FVC2002 DB2 | 3.32 | 3.01 | 2.61 | **1.75** | 2.82 | 2.50 |
+| FVC2002 DB3 | 14.54 | 15.21 | 13.78 | **9.18** | 14.21 | 12.82 |
+| FVC2002 DB4 | 7.72 | 5.39 | 4.39 | **3.18** | 5.18 | 4.32 |
+| FVC2004 DB1 | 14.64 | 14.25 | 15.90 | **7.90** | 13.96 | 15.39 |
+| FVC2004 DB2 | 14.82 | 17.90 | 16.97 | **9.25** | 17.50 | 16.28 |
+| FVC2004 DB3 | 14.54 | 13.21 | 15.86 | **10.00** | 12.61 | 15.72 |
+| FVC2004 DB4 | 11.01 | 8.07 | 7.18 | **4.75** | 8.40 | 6.89 |
 
 #### FMR1000 (% FNMR at FMR ≤ 0.1%)
 
 | Database | MCC_o | MCC_f | MCC_e | MCC_co | MCC_cf | MCC_ce |
-|----------|------:|------:|------:|-------:|-------:|-------:|
-| FVC2000 DB2 | 12.04 | 9.61 | 11.11 | **5.75** | 9.07 | 10.39 |
-| FVC2000 DB3 | 24.61 | 20.61 | 23.21 | **14.04** | 20.68 | 21.82 |
-| FVC2000 DB4 | 22.64 | 15.43 | 11.96 | **10.32** | 14.64 | 11.93 |
-| FVC2002 DB1 | 6.50 | 5.57 | 8.00 | **3.29** | 5.32 | 7.32 |
-| FVC2002 DB2 | 6.07 | 6.89 | 6.07 | **3.14** | 6.25 | 5.57 |
-| FVC2002 DB3 | 35.93 | 40.21 | 34.89 | **29.07** | 40.43 | 32.32 |
-| FVC2002 DB4 | 19.75 | 11.96 | 12.43 | **9.04** | 12.43 | 11.18 |
-| FVC2004 DB1 | 43.64 | 38.82 | 43.07 | **25.36** | 40.79 | 41.14 |
-| FVC2004 DB2 | 37.39 | 38.68 | 36.71 | **22.82** | 37.75 | 33.54 |
-| FVC2004 DB3 | 39.82 | 27.79 | 30.71 | **24.14** | 26.39 | 28.96 |
-| FVC2004 DB4 | 30.29 | 23.43 | 20.14 | **16.04** | 26.29 | 17.68 |
+|----------|------:|------:|------:|------:|------:|------:|
+| FVC2000 DB2 | 12.39 | 8.36 | 9.36 | **3.75** | 8.61 | 8.93 |
+| FVC2000 DB3 | 24.14 | 16.79 | 19.29 | **13.61** | 15.25 | 17.39 |
+| FVC2000 DB4 | 24.29 | 14.46 | 11.86 | **9.61** | 13.29 | 11.21 |
+| FVC2002 DB1 | 6.39 | 4.64 | 7.25 | **3.39** | 4.39 | 6.11 |
+| FVC2002 DB2 | 6.32 | 5.36 | 4.54 | **2.96** | 5.25 | 4.39 |
+| FVC2002 DB3 | 37.75 | 34.29 | 29.96 | 29.68 | 34.11 | **28.57** |
+| FVC2002 DB4 | 19.96 | 11.36 | 13.07 | **8.32** | 11.04 | 10.82 |
+| FVC2004 DB1 | 41.54 | 38.57 | 42.14 | **25.61** | 39.11 | 39.89 |
+| FVC2004 DB2 | 37.18 | 35.82 | 32.89 | **24.43** | 35.36 | 32.04 |
+| FVC2004 DB3 | 42.46 | 28.89 | 29.11 | **25.50** | 28.25 | 27.68 |
+| FVC2004 DB4 | 30.39 | 21.29 | 18.71 | **16.54** | 20.00 | 18.14 |
 
 **What the results show**
 
-- **FingerJet minutiae lower the error on every database and every variant.** MCC_co EER drops by 1.1–5.6× and
-  MCC_o by 2–10×; for example, FVC2002 DB2 falls from 2.00% to 0.36% and FVC2004 DB3 from 10.04% to 3.92% (MCC_co).
-- **With FingerJet, the results are close to the paper.** FVC2002 DB2 (0.36 vs 0.38), FVC2004 DB1 (4.00 vs 3.85)
-  and FVC2004 DB3 (3.92 vs 3.78) are within 0.15 points. FVC2002 DB1 and DB3, and FVC2004 DB2 and DB4 are 1.4–1.5×
-  higher, and FVC2002 DB4 is 2× higher.
+- **FingerJet minutiae lower the error on every database.** MCC_co EER drops by 1.04–4.1×; for example, FVC2002 DB2
+  falls from 1.75% to 0.43% and FVC2004 DB3 from 10.00% to 3.72%.
+- **With FingerJet, five of the eight paper databases are at or below the paper** when the best matcher and variant
+  are taken: FVC2002 DB1 0.40 (LSSR, co) vs 0.42, DB2 0.28 (LSAR, o) vs 0.38, DB3 4.36 (NLSAR, o) vs 4.42,
+  FVC2004 DB1 3.61 (LSAR, co) vs 3.85 and DB3 3.54 (LGSR, co) vs 3.78. FVC2002 DB4 (2.32 vs 1.61), FVC2004 DB2 (7.01 vs 5.35)
+  and DB4 (3.25 vs 2.38) remain above it.
 - **The texture advantage depends on the extractor.** With `crossing_number`, MCC_co is the best variant on all
-  11 databases and roughly halves the EER of MCC_o. With `fingerjet_fx_ose`, MCC_o and MCC_co are within 0.75 points
-  everywhere: MCC_o is better on 7 databases, MCC_co on 3, and they tie on FVC2004 DB4. The frequency and energy
-  variants (f, e, cf, ce) are 1.2–3.6× worse than MCC_o. Texture seems to compensate for noisy
-  minutia directions, but adds little once the directions are accurate. The I_f / I_e normalisation choice above
-  may also play a part.
+  11 databases and its mean EER is 42% lower than MCC_o's. With `fingerjet_fx_ose`, MCC_o and MCC_co are within 0.85 points
+  everywhere (MCC_o better on 6 databases, MCC_co on 5). The frequency and energy variants (f, e, cf, ce) are
+  1.1–3.8× worse than MCC_o. Texture seems to compensate for noisy minutia directions, but adds little once the
+  directions are accurate.
 - **FVC2000 DB1 is not reported.** The local copy of that database is incomplete (125 of 800
   files, some of them empty).
 
 Runtime on a 12-core desktop: about 0.5 s per image for feature extraction, plus about 0.3 s for
-`fingerjet_fx_ose` minutiae, and 3–6 ms per match. With FingerJet, one database takes 3–10 minutes for all six
-variants, and all 11 took 69 minutes.
+`fingerjet_fx_ose` minutiae; a similarity matrix takes 3–6 ms and each matcher adds about 0.6 ms (MCA about 1.5 ms).
+Evaluating all 26 matchers on all six variants takes 4–27 minutes per database; the 22 runs took about 4.5 hours.
 
 ## History
 
@@ -253,5 +352,6 @@ The Gabor filtering and minutiae code in the July 2025 partial pass was refactor
 - Nilsson, Dahl, Claesson, "The Successive Mean Quantization Transform", ICASSP 2005
 - Bazen & Gerez, "Segmentation of Fingerprint Images", 2001
 - Gottschlich, "Curved Gabor Filters for Fingerprint Image Enhancement", 2014
+- Kawagoe & Tojo, "Fingerprint pattern classification", Pattern Recognition 1984 (Poincaré index)
 - FingerJet FX OSE, DigitalPersona 2011 ([original](https://github.com/FingerJetFXOSE/FingerJetFXOSE),
   [Visual Studio edition by W. Baig and W. Ellahi](https://github.com/wajihullahbaig/FingerJetFXOSE_VS))
