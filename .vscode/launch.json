@@ -1,0 +1,76 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Extract · crossing_number",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["extract", "${input:image}", "--extractor", "crossing_number", "--dpi", "${input:dpi}",
+                     "--variant", "co", "-o", "out/crossing_number.npz",
+                     "--plot", "out/crossing_number_pipeline.png", "--plot-cylinder", "out/crossing_number_cylinder.png"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Extract · fingerjet_fx_ose",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["extract", "${input:image}", "--extractor", "fingerjet_fx_ose", "--dpi", "${input:dpi}",
+                     "--variant", "co", "-o", "out/fingerjet_fx_ose.npz",
+                     "--plot", "out/fingerjet_fx_ose_pipeline.png", "--plot-cylinder", "out/fingerjet_fx_ose_cylinder.png"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Evaluate · crossing_number",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["evaluate", "${input:folder}", "--extractor", "crossing_number", "--dpi", "${input:dpi}",
+                     "--jobs", "12", "--out", "out/evaluate_crossing_number.json"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Evaluate · fingerjet_fx_ose",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mtcc",
+            "python": "C:/Users/Precision/anaconda3/envs/audio_signal_processing/python.exe",
+            "cwd": "${workspaceFolder}",
+            "args": ["evaluate", "${input:folder}", "--extractor", "fingerjet_fx_ose", "--dpi", "${input:dpi}",
+                     "--jobs", "12", "--out", "out/evaluate_fingerjet_fx_ose.json"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ],
+    "inputs": [
+        {
+            "id": "image",
+            "type": "promptString",
+            "description": "Fingerprint image",
+            "default": "C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/FVC2002/Db1_a/1_1.tif"
+        },
+        {
+            "id": "folder",
+            "type": "promptString",
+            "description": "FVC database folder",
+            "default": "C:/Users/Precision/Onus/Data/FVC-DataSets/DataSets/FVC2002/FVC2002/Db1_a"
+        },
+        {
+            "id": "dpi",
+            "type": "pickString",
+            "description": "Scan resolution (FVC2002 DB2: 569, FVC2004 DB3: 512, others: 500)",
+            "options": ["500", "512", "569"],
+            "default": "500"
+        }
+    ]
+}
