@@ -66,7 +66,7 @@ All stages on FVC2002 DB1_A `1_1.tif`:
 | Singular points | `singular.py` | Cores and deltas by the Poincaré index of the smoothed orientation field (`_SP` matchers) |
 | Cylinders | `cylinder.py` | Eqs. 1–14, variants `o f e co cf ce` |
 | Template | `pipeline.make_template` | Valid cylinders, minutiae, nearest-neighbour table and neighbourhood quality (`mca.py`) |
-| Matching | `match.py` | Euclidean (Eq. 15) for `o`, double-angle (Eqs. 16–18) for texture; 26 global-score matchers, default LSAR (see [Matchers](#matchers)) |
+| Matching | `match.py` | Euclidean (Eq. 15) for `o`, double-angle (Eqs. 16–18) for texture; 28 global-score matchers, default LSAR (see [Matchers](#matchers)) |
 | Evaluation | `evaluate.py` | FVC protocol, EER, FMR1000 |
 
 ### Minutiae extractors
@@ -139,7 +139,7 @@ author's MATLAB matchers. A matcher name chains them in order, so every MATLAB n
 | Stage | What it does |
 |-------|--------------|
 | `N` | Normalise each local similarity by `1 − (sum of the other cells in its row and column) / (nA + nB − 2)` |
-| `LSS` | Candidate pairs: every cell, by decreasing similarity (not one-to-one) |
+| `LSS` | Candidate pairs by decreasing similarity (not one-to-one): the best A minutia of each B minutia (MATLAB); every cell (Cappelli) when LGS follows directly |
 | `LSA` | Candidate pairs: optimal one-to-one assignment (Hungarian, `scipy.optimize.linear_sum_assignment`) |
 | `LGS` | Greedy one-to-one: drop pairs whose minutiae an earlier pair already used (before or after relaxation) |
 | `R` | Relaxation by geometric compatibility (distance, direction and radial-angle differences); keeps the n_P most efficient pairs |
@@ -149,14 +149,16 @@ author's MATLAB matchers. A matcher name chains them in order, so every MATLAB n
 | `_MCA2` | Revised MCA: relaxation starts from the local similarity × rotation-invariant neighbourhood agreement (see [fusion run](#mcc_o--mcc_co-score-fusion)) |
 
 Without `R`/`DTR`, the score is the mean of the n_P best candidates; with them, the mean of the n_P most
-efficient relaxed values. `python -m mtcc evaluate --matchers ...` evaluates any of them; the 26 distinct pipelines benchmarked below are listed in
+efficient relaxed values. `python -m mtcc evaluate --matchers ...` evaluates any of them; the 28 distinct pipelines benchmarked below are listed in
 `match.MATCHERS`. When both `o` and `co` are evaluated, the results also hold their mean-rule score fusion `o+co`.
 
 ### Differences from the MATLAB code
 
 - **R** uses Cappelli's distance term (μ = 12, τ = −0.8). The MATLAB used the DTR values (1/30, −150) on pixel
   distances, which makes almost every pair of pairs incompatible.
-- **LSS** takes the top cells of the whole matrix (Cappelli). The MATLAB used the best cell of each column.
+- **LSS** takes the best cell of each column, as the MATLAB did, except directly before LGS, where it keeps every
+  cell (Cappelli), because LGS is itself a one-to-one filter that needs the second choices. `--lss-cells`
+  (`Params.lss_columns=False`) gives Cappelli's LSS everywhere; see [Column-wise LSS](#column-wise-lss).
 - **Names are followed where the MATLAB body differs:** `DTRLGS` called plain R (it equalled `RLGS`), and `NLGSR` /
   `NLGSDTR` ran LGS after relaxation.
 - **Duplicates are not listed separately:** LGS after LSA changes nothing (the assignment is already one-to-one), so
@@ -172,12 +174,12 @@ efficient relaxed values. `python -m mtcc evaluate --matchers ...` evaluates any
 
 FVC protocol on every `_A` database: 2800 genuine and 4950 impostor comparisons each, default `Params`,
 no per-database tuning. Scan resolution as given per database (`--dpi 569` for FVC2002 DB2, `--dpi 512` for FVC2004
-DB3, 500 otherwise). Every run evaluates all 26 matchers on all six variants; the raw numbers are in
+DB3, 500 otherwise). Every run evaluates all 28 matchers on all six variants and the `o+co` fusion; the raw numbers are in
 [`results/crossing_number/`](results/crossing_number/) and [`results/fingerjet_fx_ose/`](results/fingerjet_fx_ose/).
 
 ### Matcher comparison
 
-Mean EER (%) over the 11 databases for a selection of matchers (all 26 are in the heatmaps below). Best per column in bold.
+Mean EER (%) over the 11 databases for a selection of matchers (all 28 are in the heatmaps below). Best per column in bold.
 
 | Matcher | Stages | FingerJet MCC_o | FingerJet MCC_co | crossing_number MCC_o | crossing_number MCC_co |
 |---|---|--:|--:|--:|--:|
@@ -185,13 +187,14 @@ Mean EER (%) over the 11 databases for a selection of matchers (all 26 are in th
 | LGSR | LSS → LGS → R | 3.34 | 3.43 | 9.57 | **5.56** |
 | NLSAR | N → LSA → R | 3.41 | 3.53 | 9.45 | **5.56** |
 | LSADTR | LSA → DTR | 3.40 | 3.59 | **9.38** | 5.79 |
-| LSSR | LSS → R | 3.80 | 4.04 | 9.99 | 6.55 |
-| LSSDTR | LSS → DTR | 3.69 | 4.31 | 9.81 | 7.27 |
-| NLSSR | N → LSS → R | 4.15 | 7.44 | 10.40 | 8.35 |
-| LSSDTR_MCA | LSS → DTR → MCA | 5.44 | 8.43 | 14.78 | 13.15 |
-| LSSDTR_MCA_SP | LSS → DTR → MCA → SP | 5.37 | 8.30 | 14.16 | 12.79 |
+| LSSR | LSS → R | 3.46 | 3.53 | 9.77 | 5.86 |
+| RLGS | LSS → R → LGS | 3.44 | 3.53 | 9.83 | 5.92 |
+| LSSDTR | LSS → DTR | 3.42 | 3.75 | 9.41 | 6.26 |
+| NLSSR | N → LSS → R | 3.55 | 4.41 | 9.84 | 6.67 |
+| LSSDTR_MCA | LSS → DTR → MCA | 4.87 | 6.72 | 12.85 | 10.95 |
+| LSAR_MCA2 | LSA → R → MCA2 | 4.35 | 4.15 | 10.54 | 7.72 |
 | LSA | LSA | 8.80 | 14.89 | 20.93 | 20.56 |
-| LSS | LSS | 10.69 | 20.46 | 23.61 | 26.21 |
+| LSS | LSS | 9.62 | 17.93 | 22.23 | 23.70 |
 
 #### EER heatmaps, MCC_co
 
@@ -214,26 +217,49 @@ Reproduce with `python -m mtcc matchers results/fingerjet_fx_ose --variant co --
 **What the matcher comparison shows**
 
 - **Relaxation does most of the work.** Without R or DTR (LSS, LSA, LGS and their N versions) the mean EER is
-  2–6× higher, and on single databases up to 25×.
-- **One-to-one pairs before relaxation help.** LSA → R (LSAR) and greedy LGS → R (LGSR) are at or near the top in all
-  four settings and lower the mean EER of Cappelli's LSS → R (LSSR) by 4–16%. LSSR is still best on FVC2002 DB1
-  (0.40% with MCC_co).
+  2–6× higher, and on single databases up to 40×.
+- **One-to-one pairs before relaxation help most.** LSA → R (LSAR) and greedy LGS → R (LGSR) lead in all four
+  settings; column-wise LSS → R (LSSR, RLGS) follows within 0.1–0.45 points. RLGS is best on FVC2002 DB1 (0.54%
+  with MCC_co).
 - **R vs DTR is close.** R is slightly better with FingerJet minutiae; DTR wins with the noisier crossing-number
   minutiae on MCC_o (LSADTR 9.38%).
-- **Normalisation (N) needs a one-to-one selector.** NLSAR ties for best on crossing-number MCC_co and is best on
-  FVC2002 DB3/DB4 with FingerJet, but N before LSS nearly doubles the MCC_co error (NLSSR 7.44% vs LSSR 4.04%).
-- **MCA as in the MATLAB code is worse everywhere** (LSSDTR_MCA 8.43% vs LSSDTR 4.31%, FingerJet MCC_co), and the
+- **Normalisation (N) helps only with one-to-one candidates.** NLSAR ties for best on crossing-number MCC_co and is
+  best on FVC2002 DB3/DB4 with FingerJet; before LSS it still costs 0.8–0.9 points on MCC_co (NLSSR 4.41% vs
+  LSSR 3.53%, FingerJet).
+- **MCA as in the MATLAB code is worse everywhere** (LSSDTR_MCA 6.72% vs LSSDTR 3.75%, FingerJet MCC_co), and the
   singular-point weights change it little. Its start values `w(v + me)/2` are nearly the same for every pair, so the
   cylinder similarity no longer enters the relaxation, and dense templates collect high impostor scores.
 - **LSAR is the default** (`Params.matcher`): best mean EER with FingerJet on both MCC_o and MCC_co and tied best
   on crossing-number MCC_co. Against the previous default (greedy one-to-one + R, no 40-pair cap) the mean MCC_co EER
   drops from 3.64% to 3.41% (FingerJet) and from 5.90% to 5.56% (crossing number).
 
+### Column-wise LSS
+
+The MATLAB matchers took, for each minutia of B, only its best match in A before sorting; Cappelli's LSS sorts every
+cell of the matrix. Both were evaluated on all 22 runs for the LSS-based matchers (MCC_o and MCC_co). Mean EER (%),
+every cell → best per column, with the number of databases where the column-wise version is better:
+
+| Matcher | FingerJet MCC_o | FingerJet MCC_co | crossing number MCC_o | crossing number MCC_co |
+|---|---|---|---|---|
+| LSSR | 3.80 → **3.46** (8/11) | 4.04 → **3.53** (9/11) | 9.99 → **9.77** (8/11) | 6.55 → **5.86** (6/11) |
+| LSSDTR | 3.69 → **3.42** (10/11) | 4.31 → **3.75** (9/11) | 9.81 → **9.41** (8/11) | 7.27 → **6.26** (10/11) |
+| RLGS | 3.81 → **3.44** (8/11) | 3.97 → **3.53** (9/11) | 10.13 → **9.83** (8/11) | 6.54 → **5.92** (7/11) |
+| NLSSR | 4.15 → **3.55** (11/11) | 7.44 → **4.41** (11/11) | 10.40 → **9.84** (11/11) | 8.35 → **6.67** (11/11) |
+| LSSDTR_MCA | 5.44 → **4.87** (11/11) | 8.43 → **6.72** (11/11) | 14.78 → **12.85** (11/11) | 13.15 → **10.95** (11/11) |
+| LSS | 10.69 → **9.62** (11/11) | 20.46 → **17.93** (11/11) | 23.61 → **22.23** (11/11) | 26.21 → **23.70** (11/11) |
+| LGSR | 3.34 → 3.55 (2/11) | 3.43 → 3.63 (1/11) | 9.57 → 9.83 (3/11) | 5.56 → 5.97 (0/11) |
+| NLGSDTR | 3.50 → 3.58 (5/11) | 4.05 → 4.46 (0/11) | 9.55 → 9.96 (2/11) | 6.30 → 6.78 (2/11) |
+
+Column-wise selection helps every matcher in which LSS feeds relaxation, normalisation, MCA or the score directly:
+duplicate pairs of one minutia no longer support each other in the relaxation. It hurts when LGS follows, because
+LGS then loses the second choices it would otherwise fall back on. The default uses the column-wise version except
+directly before LGS. LSAR, LGSR and the other headline numbers are unchanged; the column-wise test run is in
+[`results/lss_columns/`](results/lss_columns/) and the all-cells results are in the git history (commit `b0c213c`).
+
 ### MCC_o + MCC_co score fusion
 
-`python -m mtcc evaluate DB --variants o co` also reports `o+co`, the mean of the two scores of each comparison.
-This run used eight matchers, including the revised `_MCA2`; the numbers are in [`results/fusion/`](results/fusion/).
-Best per row in bold.
+`python -m mtcc evaluate DB --variants o co` also reports `o+co`, the mean of the two scores of each comparison;
+every run above includes it. Selected matchers, best per row in bold.
 
 ![Fusion, FingerJet](docs/fusion_fingerjet_fx_ose.png)
 
@@ -245,10 +271,13 @@ Best per row in bold.
 | LGSR | 3.34 | 3.43 | **3.03** |
 | NLSAR | 3.41 | 3.53 | **3.17** |
 | LSADTR | 3.40 | 3.59 | **3.17** |
-| LSSR | 3.80 | 4.04 | **3.33** |
-| LSSDTR | 3.69 | 4.31 | **3.47** |
+| RLGS | 3.44 | 3.53 | **3.10** |
+| LSSR | 3.46 | 3.53 | **3.11** |
+| LSSDTR | 3.42 | 3.75 | **3.18** |
+| NLSSR | 3.55 | 4.41 | **3.44** |
 | LSAR_MCA2 | 4.35 | 4.15 | **3.88** |
-| LSSDTR_MCA2 | 4.95 | 4.32 | **4.09** |
+| LSSDTR_MCA2 | 4.59 | 4.29 | **4.02** |
+| LSSDTR_MCA | **4.87** | 6.72 | 5.44 |
 
 #### fingerjet_fx_ose: LSAR per database, EER % (FMR1000 %)
 
@@ -279,10 +308,13 @@ Best per row in bold.
 | LGSR | 9.57 | **5.56** | 6.15 |
 | NLSAR | 9.45 | **5.56** | 6.32 |
 | LSADTR | 9.38 | **5.79** | 6.08 |
-| LSSR | 9.99 | **6.55** | 6.87 |
-| LSSDTR | 9.81 | 7.27 | **7.10** |
+| RLGS | 9.83 | **5.92** | 6.42 |
+| LSSR | 9.77 | **5.86** | 6.35 |
+| LSSDTR | 9.41 | **6.26** | 6.34 |
+| NLSSR | 9.84 | **6.67** | 7.08 |
 | LSAR_MCA2 | 10.54 | **7.72** | 8.23 |
-| LSSDTR_MCA2 | 10.61 | **7.38** | 7.98 |
+| LSSDTR_MCA2 | 10.50 | **7.61** | 8.11 |
+| LSSDTR_MCA | 12.85 | **10.95** | 11.19 |
 
 #### crossing_number: LSAR per database, EER % (FMR1000 %)
 
@@ -302,21 +334,20 @@ Best per row in bold.
 
 </details>
 
-**What the fusion run shows**
+**What the fusion shows**
 
-- **With FingerJet, fusion helps every matcher.** LSAR drops from 3.33% (MCC_o) and 3.41% (MCC_co) to 3.03% mean
+- **With FingerJet, fusion helps every matcher except the MATLAB MCA.** LSAR drops from 3.33% (MCC_o) and 3.41% (MCC_co) to 3.03% mean
   EER, and the fused score is best or tied on 10 of 11 databases, with lower FMR1000 on most. With one fixed setting
   (LSAR, o+co) three paper databases are below the paper (FVC2002 DB2 0.28 vs 0.38, FVC2004 DB1 3.36 vs 3.85,
   FVC2004 DB3 3.32 vs 3.78).
 - **With crossing-number minutiae, equal-weight fusion hurts.** MCC_o is much weaker there (9.61% vs 5.56% for
   LSAR), so averaging pulls MCC_co down on 10 of 11 databases; MCC_co alone stays the better choice.
-- **The revised MCA does not beat plain relaxation.** `_MCA2` fixes the MATLAB MCA (LSSDTR_MCA 8.43% → LSSDTR_MCA2
-  4.32%, FingerJet MCC_co) but never beats the same matcher without it: it ties LSSDTR on MCC_co (4.32% vs 4.31%)
-  and is up to 2.2 points worse elsewhere. Relaxation
-  already rewards pairs that agree geometrically with other matched pairs; agreement among unmatched neighbours
-  adds noise from minutiae that differ between impressions. On FVC2002 DB1, comparing absolute instead of relative
-  neighbour directions raises the EER from 0.85% to 6.61%, so rotation invariance was the main defect of the MATLAB
-  version.
+- **The revised MCA does not beat plain relaxation.** `_MCA2` fixes most of the MATLAB MCA (LSSDTR_MCA 6.72% →
+  LSSDTR_MCA2 4.29%, FingerJet MCC_co) but stays 0.5–2.2 points above the same matcher without it in every setting.
+  Relaxation already rewards pairs that agree geometrically with other matched pairs; agreement among unmatched
+  neighbours adds noise from minutiae that differ between impressions. On FVC2002 DB1, comparing absolute instead of
+  relative neighbour directions raises the EER from 0.85% to 6.61%, so rotation invariance was the main defect of
+  the MATLAB version.
 
 ### Minutiae extractor comparison (EER %, MCC_co, LSAR)
 
@@ -411,10 +442,10 @@ The paper column is MCC_co from Baig et al. (2018), which used FingerJet FX OSE 
 
 - **FingerJet minutiae lower the error on every database.** MCC_co EER drops by 1.04–4.1×; for example, FVC2002 DB2
   falls from 1.75% to 0.43% and FVC2004 DB3 from 10.00% to 3.72%.
-- **With FingerJet, five of the eight paper databases are at or below the paper** when the best matcher and variant
-  are taken: FVC2002 DB1 0.40 (LSSR, co) vs 0.42, DB2 0.28 (LSAR, o) vs 0.38, DB3 4.36 (NLSAR, o) vs 4.42,
-  FVC2004 DB1 3.61 (LSAR, co) vs 3.85 and DB3 3.54 (LGSR, co) vs 3.78. FVC2002 DB4 (2.32 vs 1.61), FVC2004 DB2 (7.01 vs 5.35)
-  and DB4 (3.25 vs 2.38) remain above it.
+- **With FingerJet, four of the eight paper databases are at or below the paper** when the best matcher and variant
+  are taken: FVC2002 DB2 0.28 (LSAR, o) vs 0.38, DB3 4.36 (NLSAR, o) vs 4.42, FVC2004 DB1 3.50 (LSSDTR_MCA_SP, o) vs
+  3.85 and DB3 3.54 (LGSR, co) vs 3.78; with o+co fusion these fall to 4.14 (NLSAR), 3.11 and 3.15 (LGSR).
+  FVC2002 DB1 (0.46 vs 0.42), DB4 (2.25 vs 1.61), FVC2004 DB2 (6.89 vs 5.35) and DB4 (2.82 vs 2.38) remain above it.
 - **The texture advantage depends on the extractor.** With `crossing_number`, MCC_co is the best variant on all
   11 databases and its mean EER is 42% lower than MCC_o's. With `fingerjet_fx_ose`, MCC_o and MCC_co are within 0.85 points
   everywhere (MCC_o better on 6 databases, MCC_co on 5). The frequency and energy variants (f, e, cf, ce) are
@@ -425,7 +456,7 @@ The paper column is MCC_co from Baig et al. (2018), which used FingerJet FX OSE 
 
 Runtime on a 12-core desktop: about 0.5 s per image for feature extraction, plus about 0.3 s for
 `fingerjet_fx_ose` minutiae; a similarity matrix takes 3–6 ms and each matcher adds about 0.6 ms (MCA about 1.5 ms).
-Evaluating all 26 matchers on all six variants takes 4–27 minutes per database; the 22 runs took about 4.5 hours.
+Evaluating all 28 matchers on all six variants takes 4–25 minutes per database; the 22 runs took about 4.3 hours.
 
 ## History
 

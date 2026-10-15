@@ -2,7 +2,8 @@
 
 Stages follow Cappelli et al., "Minutia Cylinder-Code" (PAMI 2010), Sec. 5, and the author's MATLAB matchers:
   N    normalise each similarity by how similar its row and column are to the rest of the matrix
-  LSS  candidate pairs: all cells, sorted by similarity (not one-to-one)
+  LSS  candidate pairs by decreasing similarity (not one-to-one): the best A minutia of each B minutia, as in the
+       MATLAB code (p.lss_columns), or every cell (Cappelli) when LGS follows directly or p.lss_columns is off
   LSA  candidate pairs: optimal one-to-one assignment (Hungarian)
   LGS  greedy one-to-one: drop pairs whose minutiae an earlier pair already used
   R    relaxation by geometric compatibility, keep the n_P most efficient pairs
@@ -25,7 +26,8 @@ from .cylinder import d_phi
 MATCHERS = ('LSS', 'LSA', 'LGS', 'NLSS', 'NLSA', 'NLGS',
             'LSSR', 'LSAR', 'LGSR', 'NLSSR', 'NLSAR', 'NLGSR',
             'LSSDTR', 'LSADTR', 'LGSDTR', 'NLSSDTR', 'NLSADTR', 'NLGSDTR',
-            'RLGS', 'DTRLGS', 'NRLGS', 'NDTRLGS', 'LSSR_MCA', 'LSSDTR_MCA', 'NLGSDTR_MCA', 'LSSDTR_MCA_SP')
+            'RLGS', 'DTRLGS', 'NRLGS', 'NDTRLGS', 'LSSR_MCA', 'LSSDTR_MCA', 'NLGSDTR_MCA', 'LSSDTR_MCA_SP',
+            'LSAR_MCA2', 'LSSDTR_MCA2')
 _NAME = re.compile(r'(N?)(LSS|LSA)?(LGS)?(?:(R|DTR)(LGS)?(?:_(MCA)(_SP)?|_(MCA2))?)?')
 
 
@@ -69,10 +71,13 @@ def normalise(S):
     return S * (1 - others / max(sum(S.shape) - 2, 1))
 
 
-def candidates(S, assignment):
-    """Non-zero pairs (ia, ib) by decreasing similarity: every cell (LSS) or the Hungarian assignment (LSA)."""
+def candidates(S, assignment, columns=False):
+    """Non-zero pairs (ia, ib) by decreasing similarity: the Hungarian assignment (LSA), the best cell of each
+    column (LSS, MATLAB) or every cell (LSS, Cappelli)."""
     if assignment:
         ia, ib = linear_sum_assignment(S, maximize=True)
+    elif columns:
+        ia, ib = S.argmax(0), np.arange(S.shape[1])
     else:
         ia, ib = np.unravel_index(np.arange(S.size), S.shape)
     order = np.argsort(-S[ia, ib], kind='stable')
@@ -120,7 +125,8 @@ def global_score(S, A, B, p, name):
     steps = stages(name)
     if 'N' in steps:
         S = normalise(S)
-    ia, ib = candidates(S, 'LSA' in steps)
+    lgs_next = steps[steps.index('LSA' if 'LSA' in steps else 'LSS') + 1:][:1] == ['LGS']
+    ia, ib = candidates(S, 'LSA' in steps, p.lss_columns and not lgs_next)    # LGS needs every cell
     s = S[ia, ib]
     for step in steps:
         if step == 'LGS':

@@ -76,6 +76,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--extractor', default='crossing_number', choices=sorted(EXTRACTORS))
     common.add_argument('--dpi', type=int, default=500)
+    common.add_argument('--lss-cells', action='store_true', help="LSS keeps every cell (Cappelli), not each column's best")
     e = sub.add_parser('extract', parents=[common])
     e.add_argument('image')
     e.add_argument('-o', '--out', required=True)
@@ -112,7 +113,8 @@ def main():
         return _compare(args.runs, args.variant, args.matcher, args.plot)
     if args.cmd == 'matchers':
         return _matchers(args.run, args.variant, args.metric, args.plot)
-    p = Params(extractor=args.extractor, dpi=args.dpi, matcher=getattr(args, 'matcher', Params.matcher))
+    p = Params(extractor=args.extractor, dpi=args.dpi, matcher=getattr(args, 'matcher', Params.matcher),
+               lss_columns=not args.lss_cells)
 
     if args.cmd == 'extract':
         img = read_image(args.image)

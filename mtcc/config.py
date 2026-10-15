@@ -43,6 +43,7 @@ class Params:
     # --- Matching (Table IV) ---
     matcher: str = 'LSAR'          # global score, see match.py (e.g. LSSR, LGSR, NLSADTR, RLGS)
     max_nr: int = 40               # most pairs entering relaxation
+    lss_columns: bool = True       # LSS keeps the best cell of each column (MATLAB) unless LGS follows; else every cell
     mu_rho_dtr: float = 1 / 30     # DTR distance term on |d_A - d_B| / (d_A + d_B)
     tau_rho_dtr: float = -150.0
     min_me: float = 0.20
